@@ -1,0 +1,15 @@
+# Секреты: реальный конфиг с логином/паролем (в репо только config.ini.example)
+config.ini
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Локальные настройки Claude Code
+.claude/settings.local.json
+
+# Прочее
+.DS_Store
