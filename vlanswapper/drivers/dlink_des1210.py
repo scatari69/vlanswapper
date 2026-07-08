@@ -63,8 +63,11 @@ class DlinkDes1210Driver(DlinkDriver):
         return vids
 
     def port_vlans(self, port_number: int) -> set[int] | None:
-        # DES-1210 не знает 'show vlan ports <n>' — берём и untagged, и tagged
-        # порты из блочного 'show vlan' («защита от дурака» учитывает транк).
+        # DES-1210 не знает 'show vlan ports <n>' — членство берём из блочного
+        # 'show vlan'. Полное членство (и tagged, и untagged) печатается строкой
+        # 'Member Ports'; 'Untagged Ports' — её подмножество, 'Forbidden Ports'
+        # членством НЕ является и в расчёт не идёт. Так транк на аплинке (порт в
+        # 'Member Ports' при пустом 'Untagged') тоже ловится.
         out = self._run("show vlan")
         if not out.strip():
             return None
@@ -74,9 +77,9 @@ class DlinkDes1210Driver(DlinkDriver):
             m = re.search(r"\bVID\b\s*:\s*(\d+)", line)
             if m:
                 cur_vid = int(m.group(1))
-            if cur_vid is None:
+            if cur_vid is None or ":" not in line:
                 continue
-            if re.search(r"(un)?tagged\s+ports\b", line, re.IGNORECASE) and ":" in line:
+            if re.search(r"(?:member|(?:un)?tagged)\s+ports\b", line, re.IGNORECASE):
                 if port_number in _parse_port_list(line.split(":", 1)[1]):
                     vlans.add(cur_vid)
         return vlans

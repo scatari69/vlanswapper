@@ -53,14 +53,26 @@ class DetectTests(unittest.TestCase):
 
 class VlanCommandTests(unittest.TestCase):
     # DES-1210-28 не поддерживает 'show vlan ports <n>' — только полный 'show vlan'.
+    # Формат — как печатает реальная прошивка (метки 'Member/Untagged/Forbidden
+    # Ports', порт-аплинк 25-26 в VLAN 253 стоит в Member при пустом Untagged).
     SHOW_VLAN = (
-        "VID             : 1        VLAN Name       : default\n"
-        "Current Tagged ports   :\n"
-        "Current Untagged ports : 1-28\n"
+        "VID                : 1         VLAN NAME      : default\n"
+        "VLAN Type          : Static\n"
+        "Member Ports       : 1-28\n"
+        "Untagged Ports     : 1-28\n"
+        "Forbidden Ports    : \n"
         "\n"
-        "VID             : 105      VLAN Name       : vlan105\n"
-        "Current Tagged ports   :\n"
-        "Current Untagged ports :\n"
+        "VID                : 105       VLAN NAME      : vlan105\n"
+        "VLAN Type          : Static\n"
+        "Member Ports       : \n"
+        "Untagged Ports     : \n"
+        "Forbidden Ports    : \n"
+        "\n"
+        "VID                : 253       VLAN NAME      : mangement\n"
+        "VLAN Type          : Static\n"
+        "Member Ports       : 25-26\n"
+        "Untagged Ports     : \n"
+        "Forbidden Ports    : \n"
     )
 
     def test_set_access_vlan_moves_port(self):
@@ -81,6 +93,16 @@ class VlanCommandTests(unittest.TestCase):
         sess = FakeSession({"show vlan": self.SHOW_VLAN})
         vids = DlinkDes1210Driver(sess)._current_untagged_vlans(24)
         self.assertEqual(vids, [1])
+
+    def test_uplink_port_detected_via_member_ports(self):
+        # Порт 25 стоит в Member Ports VLAN 253 (untagged пуст = тегированный
+        # транк) — guard обязан распознать аплинк по 'Member Ports'.
+        sess = FakeSession({"show vlan": self.SHOW_VLAN})
+        drv = DlinkDes1210Driver(sess)
+        self.assertIn(253, drv.port_vlans(25))
+        self.assertTrue(drv.is_uplink_port(25, 253))
+        # Обычный access-порт 24 аплинком не считается.
+        self.assertFalse(drv.is_uplink_port(24, 253))
 
     def test_find_port_by_mac(self):
         fdb = "100  vlan100  AA-BB-CC-DD-EE-FF  7  Dynamic"
