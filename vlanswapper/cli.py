@@ -15,7 +15,7 @@ import sys
 
 from . import mac as macfmt
 from .detect import build_driver, detect_vendor
-from .drivers import REGISTRY, VLAN_BASE, DriverError
+from .drivers import REGISTRY, UPLINK_VLAN, VLAN_BASE, DriverError
 from .menu import run_menu
 from .session import LoginError, Session, TelnetError
 from .settings import resolve
@@ -40,6 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="номер порта свитча")
     target.add_argument("-m", "--mac", help="MAC клиента — найти порт по нему")
 
+    p.add_argument("--uplink-vlan", type=int, default=UPLINK_VLAN,
+                   help=f"VLAN аплинка для защиты от случайной перенастройки "
+                        f"(по умолчанию {UPLINK_VLAN}; 0 — отключить проверку)")
+    p.add_argument("--force", action="store_true",
+                   help="настроить порт даже если он похож на аплинк (снимает защиту)")
     p.add_argument("--no-save", action="store_true", help="не сохранять конфиг после настройки")
     p.add_argument("--dry-run", action="store_true",
                    help="показать команды, но не отправлять их на устройство")
@@ -68,8 +73,27 @@ def _resolve_port_from_args(driver, args) -> int:
     return port
 
 
+def _uplink_guard(driver, port: int, args) -> bool:
+    """Защита «от дурака»: не дать перенастроить порт-аплинк. Вернуть True, если можно продолжать."""
+    if args.force or not args.uplink_vlan:
+        return True
+    verdict = driver.is_uplink_port(port, args.uplink_vlan)
+    if verdict is None:
+        print(f"⚠ Не удалось проверить порт {port} на аплинк (VLAN {args.uplink_vlan}) — продолжаю.",
+              file=sys.stderr)
+        return True
+    if verdict:
+        print(f"⛔ Порт {port} похоже аплинк: на нём настроен VLAN {args.uplink_vlan} (транк).\n"
+              f"   Настройка отменена, чтобы не оборвать аплинк. Повторите с --force, если уверены.",
+              file=sys.stderr)
+        return False
+    return True
+
+
 def _apply(driver, port: int, args, interactive: bool) -> bool:
     """Посчитать VLAN, подтвердить (если нужно) и выполнить swap. Вернуть успех."""
+    if not _uplink_guard(driver, port, args):
+        return False
     vlan_id = driver.vlan_for_port(port)
     print(f"Порт {port} → access VLAN {vlan_id} (= {VLAN_BASE} + {port})", file=sys.stderr)
     if not args.yes and interactive and not args.dry_run:

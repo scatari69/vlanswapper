@@ -7,12 +7,12 @@ from tests.mock_switch import MockSwitch
 from vlanswapper.cli import run
 
 
-def _run_with_input(sw: MockSwitch, answers):
+def _run_with_input(sw: MockSwitch, answers, extra=()):
     it = iter(answers)
     with mock.patch("sys.stdin.isatty", return_value=True), \
          mock.patch("builtins.input", lambda *a: next(it)):
         return run(["--host", "127.0.0.1", "--port-tcp", str(sw.port),
-                    "--username", "admin", "--password", "secret"])
+                    "--username", "admin", "--password", "secret", *extra])
 
 
 class MenuTests(unittest.TestCase):
@@ -56,6 +56,27 @@ class MenuTests(unittest.TestCase):
         self.assertIn("🟢", printed)  # gi1/0/1 connected -> up
         self.assertIn("🔴", printed)  # gi1/0/2 notconnect -> down
         self.assertIn("⚫", printed)  # gi1/0/3 disabled
+
+    def test_uplink_port_blocked(self):
+        # Порт 5 — аплинк (транк VLAN 253): защита должна отменить настройку.
+        sw = MockSwitch(uplink_ports={5}).start()
+        rc = _run_with_input(sw, ["1", "5", "0"])
+        self.assertEqual(rc, 0)  # меню завершилось штатно (пункт отменён, не ошибка)
+        self.assertNotIn("switchport access vlan 105", "\n".join(sw.received))
+
+    def test_uplink_port_forced(self):
+        # С --force защита снимается и порт настраивается.
+        sw = MockSwitch(uplink_ports={5}).start()
+        rc = _run_with_input(sw, ["1", "5", "y", "0"], extra=["--force"])
+        self.assertEqual(rc, 0)
+        self.assertIn("switchport access vlan 105", "\n".join(sw.received))
+
+    def test_uplink_guard_off_allows(self):
+        # --uplink-vlan 0 полностью отключает проверку.
+        sw = MockSwitch(uplink_ports={5}).start()
+        rc = _run_with_input(sw, ["1", "5", "y", "0"], extra=["--uplink-vlan", "0"])
+        self.assertEqual(rc, 0)
+        self.assertIn("switchport access vlan 105", "\n".join(sw.received))
 
     def test_menu_immediate_exit(self):
         sw = MockSwitch().start()

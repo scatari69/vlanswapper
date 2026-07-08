@@ -62,8 +62,13 @@ sequences can split across TCP reads (there's a test for this).
      up/down/disabled status shown as emoji/ANSI color, 0: quit), calling
      `_apply` per port selection so several ports can be done on one connection.
      Read-only views (3/4) go straight to the driver and never configure.
-   `_apply` computes `vlan = 100 + port`, confirms (unless `--yes`/dry-run), and
-   runs `BaseDriver.swap()`.
+   `_apply` computes `vlan = 100 + port`, runs the **uplink guard**
+   (`_uplink_guard` → `BaseDriver.is_uplink_port`: refuses a port that already
+   carries the uplink VLAN — default `253`, from `UPLINK_VLAN`; bypass with
+   `--force`, disable with `--uplink-vlan 0`), confirms (unless `--yes`/dry-run),
+   and runs `BaseDriver.swap()`. The guard reads the port's current VLANs via
+   `BaseDriver.port_vlans` (returns `None` = couldn't tell → warn but proceed, so
+   `--dry-run` isn't blocked).
 
 `BaseDriver.swap()` (in `drivers/base.py`) is the **shared skeleton** — enter
 config → `create_vlan` → `set_access_vlan` → exit config → `save`. Vendors only
@@ -87,6 +92,13 @@ commands: `mac_table_cmd` (full FDB dump → `BaseDriver.show_mac_table`) and
 base `parse_port_status` handles Cisco-like `show interfaces status`; override
 it when the format differs (D-Link `show ports`, Huawei `display interface
 brief` — both do).
+
+For the uplink guard, `BaseDriver.port_vlans(port)` returns the set of VLANs the
+port currently carries (access + trunk) or `None` if undeterminable. The base
+parses Cisco-like `show interfaces switchport <iface>`; D-Link overrides it
+(`show vlan ports`, and DES-1210 `show vlan` — both count tagged **and**
+untagged so a trunked uplink is caught) and Huawei overrides it (`display port
+vlan`). `parse_int_ranges` (in `base.py`) expands `1-3,5,7-9` VLAN/port lists.
 
 Two cross-vendor helpers live on `BaseDriver`: `_run_confirm` for commands that
 prompt `[Y/N]`, and `_last_port_number` to extract the trailing port index from

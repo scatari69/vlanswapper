@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .base import BaseDriver, DriverError, VLAN_BASE
+from .base import UPLINK_VLAN, VLAN_BASE, BaseDriver, DriverError
 from .bdcom import BdcomDriver
 from .dlink import DlinkDriver
 from .dlink_des1210 import DlinkDes1210Driver
@@ -27,4 +27,5 @@ def get_driver(name: str) -> type[BaseDriver]:
         ) from None
 
 
-__all__ = ["REGISTRY", "get_driver", "BaseDriver", "DriverError", "VLAN_BASE"]
+__all__ = ["REGISTRY", "get_driver", "BaseDriver", "DriverError", "VLAN_BASE",
+           "UPLINK_VLAN"]

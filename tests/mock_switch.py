@@ -14,8 +14,10 @@ IAC, WILL, DO, ECHO, SGA = 255, 251, 253, 1, 3
 
 
 class MockSwitch:
-    def __init__(self, mac_port: dict[str, int] | None = None):
+    def __init__(self, mac_port: dict[str, int] | None = None,
+                 uplink_ports: set[int] | None = None):
         self.mac_port = mac_port or {"aabb.ccdd.eeff": 7}
+        self.uplink_ports = uplink_ports or set()  # порты с транком VLAN 253
         self.received: list[str] = []       # все полученные команды (для проверок)
         self._srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -100,6 +102,17 @@ class MockSwitch:
                     "gi1/0/2   notconnect",
                     "gi1/0/3   disabled"]
             return ("\r\n".join(rows)).encode(), prompt
+        if low.startswith("show interfaces switchport"):
+            nums = [int(n) for n in line.split("/")[-1].split() if n.isdigit()] \
+                if "/" in line else []
+            portnum = nums[-1] if nums else None
+            if portnum in self.uplink_ports:
+                return (b"Administrative Mode: trunk\r\n"
+                        b"Trunking Native Mode VLAN: 1\r\n"
+                        b"Trunking VLANs Enabled: 253,100-105"), prompt
+            return (b"Administrative Mode: access\r\n"
+                    b"Access Mode VLAN: 1\r\n"
+                    b"Trunking VLANs Enabled: "), prompt
         if low == "write":
             return b"Overwrite file [startup-config]? [Y/N]", prompt
         # config-команды, exit/end, terminal datadump и т.п. — просто эхо-подтверждение.

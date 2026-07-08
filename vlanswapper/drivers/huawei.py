@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 from .. import mac as macfmt
-from .base import BaseDriver
+from .base import BaseDriver, parse_int_ranges
 
 
 class HuaweiDriver(BaseDriver):
@@ -59,6 +59,24 @@ class HuaweiDriver(BaseDriver):
             elif phy in ("up", "down"):
                 rows.append((port, phy))
         return rows
+
+    def port_vlans(self, port_number: int) -> set[int] | None:
+        # 'display port vlan <iface>': "GE0/0/5  trunk  1  1 100 253"
+        # (столбцы: интерфейс, тип, PVID, список VLAN транка).
+        out = self._run(f"display port vlan {self.iface(port_number)}")
+        if not out.strip():
+            return None
+        vlans: set[int] = set()
+        found = False
+        for line in out.splitlines():
+            m = re.search(r"(?:Ethernet|GE|XGE|Eth-Trunk)\S*\s+\w[\w-]*\s+(\d+)\s+(.*)$",
+                          line, re.IGNORECASE)
+            if not m:
+                continue
+            vlans.add(int(m.group(1)))            # PVID
+            vlans |= parse_int_ranges(m.group(2))  # список VLAN транка ('-' игнорится)
+            found = True
+        return vlans if found else None
 
     def find_port_by_mac(self, mac: str) -> int | None:
         out = self._run(f"display mac-address {macfmt.huawei(mac)}")

@@ -20,6 +20,26 @@ from ..session import Session
 
 VLAN_BASE = 100
 
+#: типовой транковый VLAN на аплинке — «защита от дурака» перед настройкой порта.
+UPLINK_VLAN = 253
+
+
+def parse_int_ranges(spec: str) -> set[int]:
+    """Разобрать список чисел вида ``1-3,5,7-9`` (порты или VID) в множество."""
+    out: set[int] = set()
+    for token in spec.replace(";", ",").split(","):
+        for chunk in token.split():
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            m = re.match(r"(\d+)\s*-\s*(\d+)$", chunk)
+            if m:
+                out.update(range(int(m.group(1)), int(m.group(2)) + 1))
+            elif chunk.isdigit():
+                out.add(int(chunk))
+    return out
+
+
 #: нормализация «сырых» слов статуса линка из вывода разных вендоров.
 LINK_STATUS_MAP = {
     "connected": "up",
@@ -132,6 +152,46 @@ class BaseDriver:
             if port not in best or rank < _STATUS_RANK.get(best[port], 3):
                 best[port] = status
         return sorted(best.items())
+
+    def port_vlans(self, port_number: int) -> set[int] | None:
+        """Вернуть VLAN'ы, в которых порт сейчас состоит (access + trunk).
+
+        Служит «защитой от дурака»: если среди них окажется аплинковый VLAN,
+        вызывающий код откажется перенастраивать порт. Возврат ``None`` — не
+        удалось определить (пустой вывод, dry-run, незнакомый формат) — тогда
+        проверка не блокирует, но предупреждает.
+
+        База разбирает Cisco-подобный ``show interfaces switchport <iface>``
+        (строки ``Access Mode VLAN``, ``Trunking Native Mode VLAN``,
+        ``Trunking VLANs Enabled``). Вендоры с иным CLI переопределяют метод.
+        """
+        out = self._run(f"show interfaces switchport {self.iface(port_number)}")
+        if not out.strip():
+            return None
+        vlans: set[int] = set()
+        found = False
+        for line in out.splitlines():
+            if ":" not in line or "vlan" not in line.lower():
+                continue
+            low, val = line.lower(), line.split(":", 1)[1].strip()
+            if "access mode vlan" in low or "native mode vlan" in low:
+                m = re.match(r"(\d+)", val)
+                if m:
+                    vlans.add(int(m.group(1)))
+                    found = True
+            elif "trunk" in low and ("enable" in low or "allow" in low):
+                got = parse_int_ranges(val)
+                vlans |= got
+                found = True
+        return vlans if found else None
+
+    def is_uplink_port(self, port_number: int, uplink_vlan: int) -> bool | None:
+        """``True`` — порт несёт ``uplink_vlan`` (похоже на аплинк), ``False`` —
+        нет, ``None`` — определить не удалось."""
+        vlans = self.port_vlans(port_number)
+        if vlans is None:
+            return None
+        return uplink_vlan in vlans
 
     # -- общий сценарий ----------------------------------------------------
     def vlan_for_port(self, port_number: int) -> int:

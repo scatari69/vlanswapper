@@ -68,6 +68,37 @@ class _StubSession:
         return self._out
 
 
+class UplinkGuardTests(unittest.TestCase):
+    def _drv(self, cls, out):
+        d = cls.__new__(cls)
+        d.s = _StubSession(out)
+        return d
+
+    def test_cisco_trunk_detected_as_uplink(self):
+        out = ("Administrative Mode: trunk\n"
+               "Trunking Native Mode VLAN: 1\n"
+               "Trunking VLANs Enabled: 253,100-105\n")
+        drv = self._drv(EltexDriver, out)
+        self.assertEqual(drv.port_vlans(5), {1, 100, 101, 102, 103, 104, 105, 253})
+        self.assertTrue(drv.is_uplink_port(5, 253))
+
+    def test_cisco_access_port_not_uplink(self):
+        out = "Administrative Mode: access\nAccess Mode VLAN: 105\n"
+        drv = self._drv(EltexDriver, out)
+        self.assertEqual(drv.is_uplink_port(5, 253), False)
+
+    def test_empty_output_is_undetermined(self):
+        drv = self._drv(EltexDriver, "")
+        self.assertIsNone(drv.is_uplink_port(5, 253))
+
+    def test_dlink_show_vlan_ports_counts_tagged(self):
+        out = ("  24   1    -    -    -\n"
+               "  24   253  -    X    -\n")  # 253 tagged (транк)
+        drv = self._drv(DlinkDriver, out)
+        self.assertIn(253, drv.port_vlans(24))
+        self.assertTrue(drv.is_uplink_port(24, 253))
+
+
 class TelnetParsingTests(unittest.TestCase):
     def test_iac_negotiation_stripped(self):
         c = TelnetClient("127.0.0.1")           # сокет не открываем

@@ -53,6 +53,22 @@ class DlinkDriver(BaseDriver):
                 vids.append(int(m.group(1)))
         return vids
 
+    def port_vlans(self, port_number: int) -> set[int] | None:
+        # 'show vlan ports <n>': <port> <VID> <Untagged X/-> <Tagged X/-> ...
+        # Для «защиты от дурака» считаем членство и untagged, и tagged (транк).
+        out = self._run(f"show vlan ports {port_number}")
+        if not out.strip():
+            return None
+        vlans: set[int] = set()
+        for line in out.splitlines():
+            m = re.match(r"\s*\d+\s+(\d+)\s+(\S+)\s+(\S+)", line)
+            if not m:
+                continue
+            marks = (m.group(2).upper(), m.group(3).upper())
+            if any(x in ("X", "E", "UNTAGGED", "TAGGED") for x in marks):
+                vlans.add(int(m.group(1)))
+        return vlans
+
     def set_access_vlan(self, port_number: int, vlan_id: int) -> None:
         for old in self._current_untagged_vlans(port_number):
             if old != vlan_id:
