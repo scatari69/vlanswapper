@@ -30,6 +30,8 @@ class BaseDriver:
     name: str = "base"
     #: подстроки, по которым detect определяет вендора в выводе version-команд
     detect_markers: tuple[str, ...] = ()
+    #: команда полного дампа таблицы MAC/FDB (переопределяется вендором)
+    mac_table_cmd: str = ""
 
     def __init__(self, session: Session):
         self.s = session
@@ -66,6 +68,15 @@ class BaseDriver:
     def save(self) -> None:
         """Сохранить running- в startup-конфиг."""
         raise NotImplementedError
+
+    def show_mac_table(self) -> str:
+        """Вернуть текстовый дамп таблицы MAC-адресов (FDB) как есть.
+
+        Команда задаётся вендором через атрибут :attr:`mac_table_cmd`.
+        """
+        if not self.mac_table_cmd:
+            raise DriverError("просмотр MAC-таблицы не поддержан для этого вендора")
+        return self._run(self.mac_table_cmd)
 
     # -- общий сценарий ----------------------------------------------------
     def vlan_for_port(self, port_number: int) -> int:

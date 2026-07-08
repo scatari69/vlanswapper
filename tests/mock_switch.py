@@ -90,6 +90,10 @@ class MockSwitch:
                 if mac.replace(":", "").replace(".", "").lower() == wanted.replace(":", "").lower():
                     return f"100  {mac}  dynamic  gi1/0/{port}".encode(), prompt
             return b"", prompt
+        if low.startswith("show mac address-table"):
+            rows = [f"100  {mac}  dynamic  gi1/0/{port}"
+                    for mac, port in self.mac_port.items()]
+            return ("\r\n".join(rows)).encode(), prompt
         if low == "write":
             return b"Overwrite file [startup-config]? [Y/N]", prompt
         # config-команды, exit/end, terminal datadump и т.п. — просто эхо-подтверждение.

@@ -15,6 +15,7 @@ from .base import BaseDriver
 class BdcomDriver(BaseDriver):
     name = "bdcom"
     detect_markers = ("bdcom", "gpon", "epon olt")
+    mac_table_cmd = "show mac address-table"
 
     def disable_paging(self) -> None:
         self._run("terminal length 0")

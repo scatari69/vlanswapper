@@ -20,6 +20,7 @@ from .base import BaseDriver, DriverError
 class DlinkDriver(BaseDriver):
     name = "dlink"
     detect_markers = ("d-link", "des-", "dgs-", "dlink")
+    mac_table_cmd = "show fdb"
 
     def disable_paging(self) -> None:
         self._run("disable clipaging")

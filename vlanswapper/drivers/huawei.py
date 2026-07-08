@@ -15,6 +15,7 @@ from .base import BaseDriver
 class HuaweiDriver(BaseDriver):
     name = "huawei"
     detect_markers = ("huawei", "versatile routing platform", "vrp", "quidway")
+    mac_table_cmd = "display mac-address"
 
     def disable_paging(self) -> None:
         # Действует на текущую сессию, не требует режима конфигурации.

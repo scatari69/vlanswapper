@@ -42,6 +42,17 @@ def _choose_port_by_mac(driver) -> int | None:
     return port
 
 
+def _show_mac_table(driver) -> None:
+    print("Читаю MAC-таблицу...", file=sys.stderr)
+    try:
+        out = driver.show_mac_table()
+    except DriverError as exc:
+        print(f"Ошибка: {exc}", file=sys.stderr)
+        return
+    text = out.strip()
+    print(text if text else "MAC-таблица пуста или недоступна.", file=sys.stderr)
+
+
 def run_menu(driver, host: str, vendor: str, apply_cb) -> int:
     """Крутить меню до выхода. ``apply_cb(port) -> bool`` применяет VLAN к порту."""
     while True:
@@ -49,6 +60,7 @@ def run_menu(driver, host: str, vendor: str, apply_cb) -> int:
             f"\n=== Свитч {host} ({vendor}) ===\n"
             "  1. Указать номер порта\n"
             "  2. Найти порт по MAC-адресу\n"
+            "  3. Просмотреть MAC-таблицу\n"
             "  0. Выход",
             file=sys.stderr,
         )
@@ -56,6 +68,9 @@ def run_menu(driver, host: str, vendor: str, apply_cb) -> int:
         if choice in ("0", "q", "exit"):
             print("Выход.", file=sys.stderr)
             return 0
+        if choice == "3":
+            _show_mac_table(driver)
+            continue
         if choice == "1":
             port = _choose_port_by_number(driver)
         elif choice == "2":

@@ -15,6 +15,7 @@ from .base import BaseDriver
 class EltexDriver(BaseDriver):
     name = "eltex"
     detect_markers = ("eltex", "mes")
+    mac_table_cmd = "show mac address-table"
 
     def disable_paging(self) -> None:
         self._run("terminal datadump")
