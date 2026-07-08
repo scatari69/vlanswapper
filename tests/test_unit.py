@@ -68,6 +68,51 @@ class _StubSession:
         return self._out
 
 
+class _RecordingSession:
+    """Returns preset responses by command substring and records everything sent."""
+    def __init__(self, responses: dict[str, str] | None = None):
+        self.responses = responses or {}
+        self.sent: list[str] = []
+
+    def run(self, command, **kw):
+        self.sent.append(command)
+        for key, val in self.responses.items():
+            if key in command:
+                return val
+        return ""
+
+
+class TaggedUplinkTests(unittest.TestCase):
+    def test_cisco_add_tagged_vlan_extends_trunk(self):
+        sess = _RecordingSession()
+        drv = EltexDriver(sess)
+        drv.add_tagged_vlan(5, 105)
+        self.assertIn("interface gigabitethernet 1/0/5", sess.sent)
+        self.assertIn("switchport trunk allowed vlan add 105", sess.sent)
+
+    def test_huawei_add_tagged_vlan_allow_pass(self):
+        sess = _RecordingSession()
+        HuaweiDriver(sess).add_tagged_vlan(5, 105)
+        self.assertIn("port trunk allow-pass vlan 105", sess.sent)
+
+    def test_generic_find_uplink_ports_enumerates(self):
+        # Port 2 carries VLAN 253 in its trunk → it is the uplink.
+        sess = _RecordingSession({
+            "show interfaces status": "gi1/0/1 connected\ngi1/0/2 connected\n",
+            "switchport gigabitethernet 1/0/1": "Access Mode VLAN: 105\n",
+            "switchport gigabitethernet 1/0/2": "Trunking VLANs Enabled: 100,253\n",
+        })
+        self.assertEqual(EltexDriver(sess).find_uplink_ports(253), [2])
+
+    def test_swap_tags_uplink_but_skips_target(self):
+        sess = _RecordingSession()
+        EltexDriver(sess).swap(5, 105, save=False, uplink_ports=[2, 5])
+        self.assertIn("switchport trunk allowed vlan add 105", sess.sent)
+        # Tagged only on the uplink (2), never on the access target (5).
+        self.assertIn("interface gigabitethernet 1/0/2", sess.sent)
+        self.assertEqual(sess.sent.count("switchport trunk allowed vlan add 105"), 1)
+
+
 class UplinkGuardTests(unittest.TestCase):
     def _drv(self, cls, out):
         d = cls.__new__(cls)

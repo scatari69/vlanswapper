@@ -193,16 +193,53 @@ class BaseDriver:
             return None
         return uplink_vlan in vlans
 
+    def find_uplink_ports(self, uplink_vlan: int) -> list[int]:
+        """Return the ports that currently carry ``uplink_vlan`` (the uplink trunks).
+
+        Generic implementation: enumerate ports via :meth:`list_port_status` and
+        check each port's VLANs. Vendors override this for a cheaper single-command
+        scan (e.g. reading the VLAN's member-ports line once).
+        """
+        ports: list[int] = []
+        try:
+            listed = self.list_port_status()
+        except DriverError:
+            return ports
+        for port, _status in listed:
+            vlans = self.port_vlans(port)
+            if vlans and uplink_vlan in vlans:
+                ports.append(port)
+        return ports
+
+    def add_tagged_vlan(self, port_number: int, vlan_id: int) -> None:
+        """Add ``vlan_id`` as a tagged (trunk) member on ``port_number``.
+
+        Cisco-like default (Eltex/BDCOM): extend the trunk's allowed VLAN list.
+        Vendors with a different syntax override this method.
+        """
+        self._run(f"interface {self.iface(port_number)}")
+        # TODO: some series use 'switchport trunk vlan-allowed add' — verify per model.
+        self._run(f"switchport trunk allowed vlan add {vlan_id}")
+        self._run("exit")
+
     # -- shared workflow ---------------------------------------------------
     def vlan_for_port(self, port_number: int) -> int:
         return VLAN_BASE + port_number
 
-    def swap(self, port_number: int, vlan_id: int, save: bool = True) -> None:
-        """Full flow assigning ``vlan_id`` as the access VLAN on ``port_number``."""
+    def swap(self, port_number: int, vlan_id: int, save: bool = True,
+             uplink_ports: "list[int] | tuple[int, ...]" = ()) -> None:
+        """Full flow assigning ``vlan_id`` as the access VLAN on ``port_number``.
+
+        If ``uplink_ports`` is given, ``vlan_id`` is also added tagged to each of
+        them (except ``port_number`` itself) so the new VLAN has a path upstream.
+        """
         self.enter_config()
         try:
             self.create_vlan(vlan_id)
             self.set_access_vlan(port_number, vlan_id)
+            for uplink in uplink_ports:
+                if uplink != port_number:
+                    self.add_tagged_vlan(uplink, vlan_id)
         finally:
             self.exit_config()
         if save:

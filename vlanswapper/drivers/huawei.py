@@ -44,6 +44,11 @@ class HuaweiDriver(BaseDriver):
         self._run(f"port default vlan {vlan_id}")
         self._run("quit")
 
+    def add_tagged_vlan(self, port_number: int, vlan_id: int) -> None:
+        self._run(f"interface {self.iface(port_number)}")
+        self._run(f"port trunk allow-pass vlan {vlan_id}")
+        self._run("quit")
+
     def parse_port_status(self, output: str) -> list[tuple[int, str]]:
         # 'display interface brief': "GE0/0/1  up  up ...". PHY '*down' = admin-down.
         rows: list[tuple[int, str]] = []

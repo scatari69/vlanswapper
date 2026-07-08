@@ -88,6 +88,22 @@ the change is cancelled to avoid accidentally cutting the uplink:
 If the port's current VLANs can't be determined (unfamiliar output format,
 `--dry-run`), the script doesn't block — it only warns and proceeds.
 
+### Tagging the new VLAN on the uplink
+
+Since the uplink port is located anyway, the newly assigned VLAN is also added
+**tagged** on the uplink trunk(s) so the access port has a path upstream. For
+example, configuring port 5 → VLAN 105 also runs `... add tagged 25` on uplink
+port 25:
+
+```
+Port 5 → access VLAN 105 (= 100 + 5)
+VLAN 105 will also be tagged on uplink port(s) 25, 26
+...
+Done: port 5 = VLAN 105; VLAN 105 tagged on uplink 25, 26
+```
+
+This uses the same uplink VLAN as the guard, so `--uplink-vlan 0` disables it too.
+
 ### Non-interactive mode (arguments)
 
 ```bash

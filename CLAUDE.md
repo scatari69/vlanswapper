@@ -68,12 +68,15 @@ sequences can split across TCP reads (there's a test for this).
    `--force`, disable with `--uplink-vlan 0`), confirms (unless `--yes`/dry-run),
    and runs `BaseDriver.swap()`. The guard reads the port's current VLANs via
    `BaseDriver.port_vlans` (returns `None` = couldn't tell → warn but proceed, so
-   `--dry-run` isn't blocked).
+   `--dry-run` isn't blocked). `_apply` also calls `BaseDriver.find_uplink_ports`
+   (the ports carrying `UPLINK_VLAN`) and passes them to `swap` so the new VLAN
+   gets tagged upstream (skipped when `--uplink-vlan 0`).
 
 `BaseDriver.swap()` (in `drivers/base.py`) is the **shared skeleton** — enter
-config → `create_vlan` → `set_access_vlan` → exit config → `save`. Vendors only
-override the CLI-specific primitives. Do not put vendor branching in the caller;
-add/override methods on the driver instead.
+config → `create_vlan` → `set_access_vlan` → (for each uplink port ≠ target)
+`add_tagged_vlan` → exit config → `save`. Vendors only override the CLI-specific
+primitives. Do not put vendor branching in the caller; add/override methods on
+the driver instead.
 
 ## Adding or fixing a vendor driver
 
@@ -99,6 +102,14 @@ parses Cisco-like `show interfaces switchport <iface>`; D-Link overrides it
 (`show vlan ports`, and DES-1210 `show vlan` — both count tagged **and**
 untagged so a trunked uplink is caught) and Huawei overrides it (`display port
 vlan`). `parse_int_ranges` (in `base.py`) expands `1-3,5,7-9` VLAN/port lists.
+
+To tag the new VLAN on the uplink trunk, `BaseDriver.find_uplink_ports(vlan)`
+returns the ports carrying it — the base enumerates via `list_port_status` +
+`port_vlans` (one query per port), DES-1210 overrides it to parse the VID's
+member-ports line in a single `show vlan`. `BaseDriver.add_tagged_vlan(port,
+vlan)` adds a tagged member: the Cisco-like default extends the trunk allowed
+list (`switchport trunk allowed vlan add`); D-Link (`config vlan ... add
+tagged`), Huawei (`port trunk allow-pass vlan`) and Zyxel (`fixed`) override it.
 
 Two cross-vendor helpers live on `BaseDriver`: `_run_confirm` for commands that
 prompt `[Y/N]`, and `_last_port_number` to extract the trailing port index from

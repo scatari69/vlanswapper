@@ -48,6 +48,12 @@ class ZyxelDriver(BaseDriver):
         self._run(f"pvid {vlan_id}")
         self._run("exit")
 
+    def add_tagged_vlan(self, port_number: int, vlan_id: int) -> None:
+        # In the vlan context, mark the port tagged (fixed member, no untagging).
+        self._run(f"vlan {vlan_id}")
+        self._run(f"fixed {port_number}")
+        self._run("exit")
+
     def find_port_by_mac(self, mac: str) -> int | None:
         out = self._run(f"show mac address-table mac {macfmt.colon(mac)}")
         # Format: MAC  VID  Port  Type  →  take the Port column.

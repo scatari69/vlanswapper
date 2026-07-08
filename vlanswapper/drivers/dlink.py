@@ -70,6 +70,10 @@ class DlinkDriver(BaseDriver):
                 vlans.add(int(m.group(1)))
         return vlans
 
+    def add_tagged_vlan(self, port_number: int, vlan_id: int) -> None:
+        # D-Link: no trunk allowed-list, membership is a one-line command.
+        self._run(f"config vlan vlanid {vlan_id} add tagged {port_number}")
+
     def set_access_vlan(self, port_number: int, vlan_id: int) -> None:
         for old in self._current_untagged_vlans(port_number):
             if old != vlan_id:

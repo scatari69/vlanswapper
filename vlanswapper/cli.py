@@ -95,15 +95,24 @@ def _apply(driver, port: int, args, interactive: bool) -> bool:
     if not _uplink_guard(driver, port, args):
         return False
     vlan_id = driver.vlan_for_port(port)
+    # Find the uplink trunk(s) so the new VLAN gets a path upstream (tagged there).
+    uplinks = [u for u in driver.find_uplink_ports(args.uplink_vlan) if u != port] \
+        if args.uplink_vlan else []
     print(f"Port {port} → access VLAN {vlan_id} (= {VLAN_BASE} + {port})", file=sys.stderr)
+    if uplinks:
+        print(f"VLAN {vlan_id} will also be tagged on uplink port(s) "
+              f"{', '.join(map(str, uplinks))}", file=sys.stderr)
     if not args.yes and interactive and not args.dry_run:
         if input("Apply? [y/N]: ").strip().lower() not in ("y", "yes"):
             print("Skipped.", file=sys.stderr)
             return False
-    driver.swap(port, vlan_id, save=not args.no_save)
-    print(f"Done: port {port} = VLAN {vlan_id}"
-          + (" (dry-run, nothing sent)" if args.dry_run else ""),
-          file=sys.stderr)
+    driver.swap(port, vlan_id, save=not args.no_save, uplink_ports=uplinks)
+    done = f"Done: port {port} = VLAN {vlan_id}"
+    if uplinks:
+        done += f"; VLAN {vlan_id} tagged on uplink {', '.join(map(str, uplinks))}"
+    if args.dry_run:
+        done += " (dry-run, nothing sent)"
+    print(done, file=sys.stderr)
     return True
 
 

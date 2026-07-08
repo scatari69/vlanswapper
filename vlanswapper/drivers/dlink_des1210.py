@@ -84,6 +84,24 @@ class DlinkDes1210Driver(DlinkDriver):
                     vlans.add(cur_vid)
         return vlans
 
+    def find_uplink_ports(self, uplink_vlan: int) -> list[int]:
+        # One 'show vlan' parse instead of the generic per-port enumeration:
+        # return the member ports of the uplink VID (both tagged and untagged).
+        out = self._run("show vlan")
+        if not out.strip():
+            return []
+        ports: set[int] = set()
+        cur_vid: int | None = None
+        for line in out.splitlines():
+            m = re.search(r"\bVID\b\s*:\s*(\d+)", line)
+            if m:
+                cur_vid = int(m.group(1))
+            if cur_vid != uplink_vlan or ":" not in line:
+                continue
+            if re.search(r"(?:member|(?:un)?tagged)\s+ports\b", line, re.IGNORECASE):
+                ports |= _parse_port_list(line.split(":", 1)[1])
+        return sorted(ports)
+
     def set_access_vlan(self, port_number: int, vlan_id: int) -> None:
         # Remove the port from its old untagged VLANs and add it to the target
         # (same as the base driver).

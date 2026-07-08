@@ -104,6 +104,22 @@ class VlanCommandTests(unittest.TestCase):
         # A regular access port 24 is not treated as an uplink.
         self.assertFalse(drv.is_uplink_port(24, 253))
 
+    def test_find_uplink_ports(self):
+        # VLAN 253 has member ports 25-26 → those are the uplink trunks.
+        sess = FakeSession({"show vlan": self.SHOW_VLAN})
+        self.assertEqual(DlinkDes1210Driver(sess).find_uplink_ports(253), [25, 26])
+
+    def test_swap_tags_new_vlan_on_uplinks(self):
+        # Configuring port 5 (→ VLAN 105) must also tag 105 on uplink ports 25/26.
+        sess = FakeSession({"show vlan": self.SHOW_VLAN})
+        drv = DlinkDes1210Driver(sess)
+        drv.swap(5, 105, save=False, uplink_ports=drv.find_uplink_ports(253))
+        self.assertIn("config vlan vlanid 105 add tagged 25", sess.sent)
+        self.assertIn("config vlan vlanid 105 add tagged 26", sess.sent)
+        # The access port itself is still set untagged, not tagged.
+        self.assertIn("config vlan vlanid 105 add untagged 5", sess.sent)
+        self.assertNotIn("config vlan vlanid 105 add tagged 5", sess.sent)
+
     def test_find_port_by_mac(self):
         fdb = "100  vlan100  AA-BB-CC-DD-EE-FF  7  Dynamic"
         sess = FakeSession({"show fdb mac_address": fdb})
