@@ -16,6 +16,7 @@ class ZyxelDriver(BaseDriver):
     name = "zyxel"
     detect_markers = ("zyxel", "gs1", "gs2", "xgs")
     mac_table_cmd = "show mac address-table"
+    port_status_cmd = "show interfaces status"  # TODO: сверить формат на серии
 
     def disable_paging(self) -> None:
         # TODO: не все прошивки Zyxel поддерживают отключение пейджинга по CLI.

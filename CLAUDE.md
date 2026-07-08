@@ -58,8 +58,10 @@ sequences can split across TCP reads (there's a test for this).
    - explicit `--port`/`--mac` → one-shot via `_resolve_port_from_args` then
      `_apply` (returns exit code).
    - interactive with neither → `menu.run_menu` loops a text menu (1: enter
-     port, 2: find by MAC, 0: quit), calling `_apply` per selection so several
-     ports can be done on one connection.
+     port, 2: find by MAC, 3: dump MAC table, 4: list ports with an
+     up/down/disabled status shown as emoji/ANSI color, 0: quit), calling
+     `_apply` per port selection so several ports can be done on one connection.
+     Read-only views (3/4) go straight to the driver and never configure.
    `_apply` computes `vlan = 100 + port`, confirms (unless `--yes`/dry-run), and
    runs `BaseDriver.swap()`.
 
@@ -77,6 +79,14 @@ Cisco-like CLIs do this implicitly, D-Link does **not** and removes it
 explicitly), `find_port_by_mac` (returns an `int` port number — parse the
 mac-table output), and `save`. Register the class in `drivers/__init__.py`
 `REGISTRY`.
+
+For the read-only menu views, set two class attributes with the vendor's
+commands: `mac_table_cmd` (full FDB dump → `BaseDriver.show_mac_table`) and
+`port_status_cmd` (→ `BaseDriver.list_port_status`, which calls
+`parse_port_status` and merges combo-port duplicates by up>down>disabled). The
+base `parse_port_status` handles Cisco-like `show interfaces status`; override
+it when the format differs (D-Link `show ports`, Huawei `display interface
+brief` — both do).
 
 Two cross-vendor helpers live on `BaseDriver`: `_run_confirm` for commands that
 prompt `[Y/N]`, and `_last_port_number` to extract the trailing port index from

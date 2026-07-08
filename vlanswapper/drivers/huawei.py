@@ -16,6 +16,7 @@ class HuaweiDriver(BaseDriver):
     name = "huawei"
     detect_markers = ("huawei", "versatile routing platform", "vrp", "quidway")
     mac_table_cmd = "display mac-address"
+    port_status_cmd = "display interface brief"
 
     def disable_paging(self) -> None:
         # Действует на текущую сессию, не требует режима конфигурации.
@@ -41,6 +42,23 @@ class HuaweiDriver(BaseDriver):
         # port default vlan заменяет прежний PVID доступа.
         self._run(f"port default vlan {vlan_id}")
         self._run("quit")
+
+    def parse_port_status(self, output: str) -> list[tuple[int, str]]:
+        # 'display interface brief': "GE0/0/1  up  up ...". PHY '*down' = admin-down.
+        rows: list[tuple[int, str]] = []
+        for line in output.splitlines():
+            toks = line.split()
+            if len(toks) < 2:
+                continue
+            port = self._last_port_number(toks[0])
+            if port is None:
+                continue
+            phy = toks[1].lower()
+            if phy.startswith("*down"):
+                rows.append((port, "disabled"))
+            elif phy in ("up", "down"):
+                rows.append((port, phy))
+        return rows
 
     def find_port_by_mac(self, mac: str) -> int | None:
         out = self._run(f"display mac-address {macfmt.huawei(mac)}")

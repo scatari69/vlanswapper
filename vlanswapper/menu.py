@@ -53,6 +53,34 @@ def _show_mac_table(driver) -> None:
     print(text if text else "MAC-таблица пуста или недоступна.", file=sys.stderr)
 
 
+#: эмодзи и ANSI-цвет для каждого статуса линка.
+_STATUS_EMOJI = {"up": "🟢", "down": "🔴", "disabled": "⚫", "unknown": "⚪"}
+_STATUS_COLOR = {"up": "32", "down": "31", "disabled": "90", "unknown": "37"}
+
+
+def _fmt_status(status: str) -> str:
+    """Собрать 'эмодзи + подпись', подкрашивая подпись ANSI, если stderr — TTY."""
+    label = status
+    if sys.stderr.isatty():
+        color = _STATUS_COLOR.get(status, "37")
+        label = f"\033[{color}m{status}\033[0m"
+    return f"{_STATUS_EMOJI.get(status, '⚪')} {label}"
+
+
+def _show_ports(driver) -> None:
+    print("Читаю список портов...", file=sys.stderr)
+    try:
+        ports = driver.list_port_status()
+    except DriverError as exc:
+        print(f"Ошибка: {exc}", file=sys.stderr)
+        return
+    if not ports:
+        print("Список портов пуст или недоступен.", file=sys.stderr)
+        return
+    for port, status in ports:
+        print(f"  Порт {port:>3}  {_fmt_status(status)}", file=sys.stderr)
+
+
 def run_menu(driver, host: str, vendor: str, apply_cb) -> int:
     """Крутить меню до выхода. ``apply_cb(port) -> bool`` применяет VLAN к порту."""
     while True:
@@ -61,6 +89,7 @@ def run_menu(driver, host: str, vendor: str, apply_cb) -> int:
             "  1. Указать номер порта\n"
             "  2. Найти порт по MAC-адресу\n"
             "  3. Просмотреть MAC-таблицу\n"
+            "  4. Просмотреть список портов\n"
             "  0. Выход",
             file=sys.stderr,
         )
@@ -70,6 +99,9 @@ def run_menu(driver, host: str, vendor: str, apply_cb) -> int:
             return 0
         if choice == "3":
             _show_mac_table(driver)
+            continue
+        if choice == "4":
+            _show_ports(driver)
             continue
         if choice == "1":
             port = _choose_port_by_number(driver)

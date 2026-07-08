@@ -16,6 +16,7 @@ class BdcomDriver(BaseDriver):
     name = "bdcom"
     detect_markers = ("bdcom", "gpon", "epon olt")
     mac_table_cmd = "show mac address-table"
+    port_status_cmd = "show interface status"  # TODO: сверить формат на серии
 
     def disable_paging(self) -> None:
         self._run("terminal length 0")

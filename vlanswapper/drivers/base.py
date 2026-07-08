@@ -20,6 +20,23 @@ from ..session import Session
 
 VLAN_BASE = 100
 
+#: нормализация «сырых» слов статуса линка из вывода разных вендоров.
+LINK_STATUS_MAP = {
+    "connected": "up",
+    "up": "up",
+    "notconnect": "down",
+    "notconnected": "down",
+    "not-connect": "down",
+    "down": "down",
+    "disabled": "disabled",
+    "admin-down": "disabled",
+    "err-disabled": "disabled",
+    "errdisabled": "disabled",
+}
+
+#: приоритет статусов при слиянии дублей (напр. combo-порт: медь down, оптика up).
+_STATUS_RANK = {"up": 0, "down": 1, "disabled": 2, "unknown": 3}
+
 
 class DriverError(Exception):
     """Ошибка выполнения на устройстве (порт не найден, отказ команды и т.п.)."""
@@ -32,6 +49,8 @@ class BaseDriver:
     detect_markers: tuple[str, ...] = ()
     #: команда полного дампа таблицы MAC/FDB (переопределяется вендором)
     mac_table_cmd: str = ""
+    #: команда вывода статуса портов (переопределяется вендором)
+    port_status_cmd: str = ""
 
     def __init__(self, session: Session):
         self.s = session
@@ -77,6 +96,42 @@ class BaseDriver:
         if not self.mac_table_cmd:
             raise DriverError("просмотр MAC-таблицы не поддержан для этого вендора")
         return self._run(self.mac_table_cmd)
+
+    def parse_port_status(self, output: str) -> list[tuple[int, str]]:
+        """Разобрать вывод :attr:`port_status_cmd` в список ``(порт, статус)``.
+
+        Базовая реализация рассчитана на Cisco-подобный ``show interfaces
+        status`` (первый столбец — интерфейс, где-то дальше — слово статуса).
+        Вендоры с иным форматом переопределяют метод.
+        """
+        rows: list[tuple[int, str]] = []
+        for line in output.splitlines():
+            toks = line.split()
+            if len(toks) < 2:
+                continue
+            port = self._last_port_number(toks[0])
+            if port is None:
+                continue
+            status = next((LINK_STATUS_MAP[t.lower()] for t in toks[1:]
+                           if t.lower() in LINK_STATUS_MAP), None)
+            if status is not None:
+                rows.append((port, status))
+        return rows
+
+    def list_port_status(self) -> list[tuple[int, str]]:
+        """Вернуть отсортированный список ``(порт, статус)`` без дублей.
+
+        Дубли по одному порту (напр. combo copper/fiber) сливаются в «лучший»
+        статус: up > down > disabled.
+        """
+        if not self.port_status_cmd:
+            raise DriverError("просмотр списка портов не поддержан для этого вендора")
+        best: dict[int, str] = {}
+        for port, status in self.parse_port_status(self._run(self.port_status_cmd)):
+            rank = _STATUS_RANK.get(status, _STATUS_RANK["unknown"])
+            if port not in best or rank < _STATUS_RANK.get(best[port], 3):
+                best[port] = status
+        return sorted(best.items())
 
     # -- общий сценарий ----------------------------------------------------
     def vlan_for_port(self, port_number: int) -> int:

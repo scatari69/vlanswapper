@@ -21,6 +21,7 @@ class DlinkDriver(BaseDriver):
     name = "dlink"
     detect_markers = ("d-link", "des-", "dgs-", "dlink")
     mac_table_cmd = "show fdb"
+    port_status_cmd = "show ports"
 
     def disable_paging(self) -> None:
         self._run("disable clipaging")
@@ -59,6 +60,27 @@ class DlinkDriver(BaseDriver):
         self._run(f"config vlan vlanid {vlan_id} add untagged {port_number}")
         # TODO: команда PVID зависит от серии. На DES-3200 — 'config gvrp ports'.
         self._run(f"config gvrp ports {port_number} pvid {vlan_id}")
+
+    def parse_port_status(self, output: str) -> list[tuple[int, str]]:
+        # 'show ports': "1  Enabled/Auto  Auto/Disabled  Link Down  Enabled".
+        # 2-й столбец — админ-состояние (Enabled/Disabled), в Connection —
+        # 'Link Down' у погашенного линка либо скорость (100M/Full и т.п.) у поднятого.
+        rows: list[tuple[int, str]] = []
+        for line in output.splitlines():
+            m = re.match(r"\s*(\d+)", line)
+            if not m:
+                continue
+            port = int(m.group(1))
+            toks = line.split()
+            admin = toks[1].lower() if len(toks) > 1 else ""
+            low = line.lower()
+            if admin.startswith("disabled"):
+                rows.append((port, "disabled"))
+            elif "link down" in low or "linkdown" in low:
+                rows.append((port, "down"))
+            else:
+                rows.append((port, "up"))
+        return rows
 
     def find_port_by_mac(self, mac: str) -> int | None:
         out = self._run(f"show fdb mac_address {macfmt.dash(mac)}")

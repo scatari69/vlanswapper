@@ -94,6 +94,12 @@ class MockSwitch:
             rows = [f"100  {mac}  dynamic  gi1/0/{port}"
                     for mac, port in self.mac_port.items()]
             return ("\r\n".join(rows)).encode(), prompt
+        if low.startswith("show interfaces status") or low.startswith("show interface status"):
+            rows = ["Port      Status",
+                    "gi1/0/1   connected",
+                    "gi1/0/2   notconnect",
+                    "gi1/0/3   disabled"]
+            return ("\r\n".join(rows)).encode(), prompt
         if low == "write":
             return b"Overwrite file [startup-config]? [Y/N]", prompt
         # config-команды, exit/end, terminal datadump и т.п. — просто эхо-подтверждение.

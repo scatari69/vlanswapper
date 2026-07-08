@@ -41,6 +41,22 @@ class MenuTests(unittest.TestCase):
         # Просмотр таблицы не должен ничего конфигурировать.
         self.assertNotIn("switchport access vlan", joined)
 
+    def test_menu_show_ports(self):
+        sw = MockSwitch().start()
+        with mock.patch("sys.stderr") as err:
+            err.isatty.return_value = False
+            rc = _run_with_input(sw, ["4", "0"])
+        self.assertEqual(rc, 0)
+        joined = "\n".join(sw.received)
+        self.assertIn("show interfaces status", joined)
+        # Просмотр списка портов ничего не конфигурирует.
+        self.assertNotIn("switchport access vlan", joined)
+        # Собранное для печати: порт → статус (up/down/disabled).
+        printed = "".join(str(c.args[0]) for c in err.write.call_args_list if c.args)
+        self.assertIn("🟢", printed)  # gi1/0/1 connected -> up
+        self.assertIn("🔴", printed)  # gi1/0/2 notconnect -> down
+        self.assertIn("⚫", printed)  # gi1/0/3 disabled
+
     def test_menu_immediate_exit(self):
         sw = MockSwitch().start()
         rc = _run_with_input(sw, ["0"])
