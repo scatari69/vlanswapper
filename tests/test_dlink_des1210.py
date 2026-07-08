@@ -52,15 +52,35 @@ class DetectTests(unittest.TestCase):
 
 
 class VlanCommandTests(unittest.TestCase):
+    # DES-1210-28 не поддерживает 'show vlan ports <n>' — только полный 'show vlan'.
+    SHOW_VLAN = (
+        "VID             : 1        VLAN Name       : default\n"
+        "Current Tagged ports   :\n"
+        "Current Untagged ports : 1-28\n"
+        "\n"
+        "VID             : 105      VLAN Name       : vlan105\n"
+        "Current Tagged ports   :\n"
+        "Current Untagged ports :\n"
+    )
+
     def test_set_access_vlan_moves_port(self):
         # Порт 5 сейчас untagged в VLAN 1 -> должен уйти в VLAN 105.
-        sess = FakeSession({"show vlan ports 5": "  5     1     X     -     -"})
+        sess = FakeSession({"show vlan": self.SHOW_VLAN})
         DlinkDes1210Driver(sess).set_access_vlan(5, 105)
         self.assertIn("config vlan vlanid 1 delete 5", sess.sent)
         self.assertIn("config vlan vlanid 105 add untagged 5", sess.sent)
         self.assertIn("config port_vlan 5 pvid 105", sess.sent)
         # PVID-команда именно модельная, а не gvrp от DES-3200.
         self.assertFalse(any("gvrp" in c for c in sess.sent))
+        # Именно 'show vlan' без 'ports' — 'show vlan ports N' на 1210 не работает.
+        self.assertIn("show vlan", sess.sent)
+        self.assertFalse(any("show vlan ports" in c for c in sess.sent))
+
+    def test_current_untagged_vlans_parses_ranges(self):
+        # Порт 24 входит в диапазон 1-28 (VLAN 1), но не в пустой список VLAN 105.
+        sess = FakeSession({"show vlan": self.SHOW_VLAN})
+        vids = DlinkDes1210Driver(sess)._current_untagged_vlans(24)
+        self.assertEqual(vids, [1])
 
     def test_find_port_by_mac(self):
         fdb = "100  vlan100  AA-BB-CC-DD-EE-FF  7  Dynamic"
