@@ -1,20 +1,20 @@
-"""Драйвер D-Link DES-1210 (Smart Managed, серии -10/-28/-52).
+"""D-Link DES-1210 driver (Smart Managed, -10/-28/-52 series).
 
-Отличия от базового :class:`DlinkDriver` (тот ориентирован на «полноценные»
-managed-свитчи вроде DES-3200):
+Differences from the base :class:`DlinkDriver` (which targets "full" managed
+switches like the DES-3200):
 
-* Это **Smart Managed** свитч. CLI по Telnet присутствует только на прошивках
-  ревизий **C1/F** и новее; на ранних ревизиях управление лишь через
-  web/SmartConsole/SNMP — там драйвер работать не сможет.
-* PVID у DES-1210 задаётся командой ``config vlan_precedence``/``config port_vlan``
-  в зависимости от прошивки, а привычной для DES-3200 ``config gvrp ports ...``
-  здесь нет. Ниже используется ``config port_vlan`` — при расхождении с вашей
-  прошивкой поправьте (отмечено TODO).
-* Постраничный вывод отключается тем же ``disable clipaging``; если прошивка
-  команду не знает, она вернёт ошибку — это не фатально.
+* This is a **Smart Managed** switch. A Telnet CLI exists only on firmware
+  revisions **C1/F** and newer; on earlier revisions management is web/
+  SmartConsole/SNMP only — the driver cannot work there.
+* On the DES-1210 the PVID is set with ``config vlan_precedence``/``config
+  port_vlan`` depending on the firmware; the DES-3200's familiar ``config gvrp
+  ports ...`` does not exist here. Below we use ``config port_vlan`` — adjust it
+  if it doesn't match your firmware (marked TODO).
+* Paging is disabled with the same ``disable clipaging``; if the firmware
+  doesn't know the command it returns an error — not fatal.
 
-Все шаблоны — **best-effort**, проверены по документации, а не на железе.
-Перед боем сверьте вывод через ``--dry-run --vendor dlink_des1210``.
+All templates are **best-effort**, verified against docs rather than hardware.
+Before production use, check the output with ``--dry-run --vendor dlink_des1210``.
 """
 
 from __future__ import annotations
@@ -24,28 +24,28 @@ import re
 from .base import parse_int_ranges
 from .dlink import DlinkDriver
 
-# Списки портов D-Link ('1-3,5,7-9') разбираются тем же парсером диапазонов.
+# D-Link port lists ('1-3,5,7-9') are parsed by the same range parser.
 _parse_port_list = parse_int_ranges
 
 
 class DlinkDes1210Driver(DlinkDriver):
     name = "dlink_des1210"
-    # 'des-1210' длиннее общего 'des-' → автодетект предпочтёт этот драйвер.
+    # 'des-1210' is longer than the generic 'des-' → autodetect prefers this driver.
     detect_markers = ("des-1210",)
 
     def disable_paging(self) -> None:
-        # На части прошивок DES-1210 команды нет; ошибку игнорируем.
+        # Some DES-1210 firmware lacks the command; ignore the error.
         out = self._run("disable clipaging")
         if "fail" in out.lower() or "error" in out.lower():
-            self.s.log("[des-1210] disable clipaging не поддерживается — игнорирую")
+            self.s.log("[des-1210] disable clipaging not supported — ignoring")
 
     def _current_untagged_vlans(self, port_number: int) -> list[int]:
-        """Найти VID'ы, где порт сейчас untagged-член.
+        """Find the VIDs where the port is currently an untagged member.
 
-        DES-1210-28 (Smart Managed) **не поддерживает** ``show vlan ports <n>``
-        — работает только полный ``show vlan``, который печатает по блоку на
-        VLAN со строкой вида ``Current Untagged ports : 1-28``. Разбираем эти
-        блоки и ищем VLAN'ы, где номер порта попадает в untagged-список.
+        The DES-1210-28 (Smart Managed) **does not support** ``show vlan ports
+        <n>`` — only the full ``show vlan`` works, which prints one block per
+        VLAN with a line like ``Current Untagged ports : 1-28``. We parse those
+        blocks and look for VLANs whose untagged list contains the port number.
         """
         out = self._run("show vlan")
         vids: list[int] = []
@@ -63,11 +63,11 @@ class DlinkDes1210Driver(DlinkDriver):
         return vids
 
     def port_vlans(self, port_number: int) -> set[int] | None:
-        # DES-1210 не знает 'show vlan ports <n>' — членство берём из блочного
-        # 'show vlan'. Полное членство (и tagged, и untagged) печатается строкой
-        # 'Member Ports'; 'Untagged Ports' — её подмножество, 'Forbidden Ports'
-        # членством НЕ является и в расчёт не идёт. Так транк на аплинке (порт в
-        # 'Member Ports' при пустом 'Untagged') тоже ловится.
+        # The DES-1210 doesn't know 'show vlan ports <n>' — membership comes from
+        # the block-style 'show vlan'. Full membership (both tagged and untagged)
+        # is printed on the 'Member Ports' line; 'Untagged Ports' is a subset of
+        # it, and 'Forbidden Ports' is NOT membership and is ignored. This also
+        # catches a trunked uplink (a port in 'Member Ports' with empty 'Untagged').
         out = self._run("show vlan")
         if not out.strip():
             return None
@@ -85,11 +85,12 @@ class DlinkDes1210Driver(DlinkDriver):
         return vlans
 
     def set_access_vlan(self, port_number: int, vlan_id: int) -> None:
-        # Снять порт со старых untagged-VLAN и добавить в целевой (как в базовом).
+        # Remove the port from its old untagged VLANs and add it to the target
+        # (same as the base driver).
         for old in self._current_untagged_vlans(port_number):
             if old != vlan_id:
                 self._run(f"config vlan vlanid {old} delete {port_number}")
         self._run(f"config vlan vlanid {vlan_id} add untagged {port_number}")
-        # TODO: PVID на DES-1210. По докам — 'config port_vlan <port> pvid <vid>'.
-        # На некоторых прошивках F: 'config vlan_precedence'. Проверьте на модели.
+        # TODO: PVID on the DES-1210. Per the docs it's 'config port_vlan <port> pvid <vid>'.
+        # On some F firmware: 'config vlan_precedence'. Verify on your model.
         self._run(f"config port_vlan {port_number} pvid {vlan_id}")

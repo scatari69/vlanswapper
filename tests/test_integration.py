@@ -1,4 +1,4 @@
-"""Интеграционный тест против mock-свитча: логин, детект, swap, поиск по MAC."""
+"""Integration test against the mock switch: login, detect, swap, find-by-MAC."""
 
 import unittest
 
@@ -20,7 +20,7 @@ class IntegrationTests(unittest.TestCase):
         sw = MockSwitch().start()
         client, session, prompt = self._connect(sw)
         try:
-            self.assertTrue(prompt.endswith("#"), f"ожидали enable-режим, получили {prompt!r}")
+            self.assertTrue(prompt.endswith("#"), f"expected enable mode, got {prompt!r}")
 
             vendor = detect_vendor(session, prompt)
             self.assertEqual(vendor, "eltex")
@@ -31,7 +31,7 @@ class IntegrationTests(unittest.TestCase):
         finally:
             client.close()
 
-        # Порт 5 -> VLAN 105, назначенный access'ом, и конфиг сохранён.
+        # Port 5 -> VLAN 105 assigned as access, and the config was saved.
         joined = "\n".join(sw.received)
         self.assertIn("vlan 105", joined)
         self.assertIn("interface gigabitethernet 1/0/5", joined)

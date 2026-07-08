@@ -1,4 +1,4 @@
-"""Позволяет запуск как ``python -m vlanswapper``."""
+"""Enables running as ``python -m vlanswapper``."""
 
 from __future__ import annotations
 

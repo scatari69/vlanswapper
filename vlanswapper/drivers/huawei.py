@@ -1,7 +1,8 @@
-"""Драйвер Huawei VRP (S-серии: Quidway/S2xxx/S5xxx).
+"""Huawei VRP driver (S-series: Quidway/S2xxx/S5xxx).
 
-Ключевые отличия от Cisco-подобных: system-view вместо configure terminal,
-port default vlan вместо switchport access vlan, display вместо show.
+Key differences from Cisco-like devices: system-view instead of configure
+terminal, port default vlan instead of switchport access vlan, display instead
+of show.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ class HuaweiDriver(BaseDriver):
     port_status_cmd = "display interface brief"
 
     def disable_paging(self) -> None:
-        # Действует на текущую сессию, не требует режима конфигурации.
+        # Applies to the current session, no configuration mode required.
         self._run("screen-length 0 temporary")
 
     def enter_config(self) -> None:
@@ -29,7 +30,7 @@ class HuaweiDriver(BaseDriver):
         self._run("return")
 
     def iface(self, port_number: int) -> str:
-        # TODO: на части моделей интерфейс Ethernet0/0/x, а не GigabitEthernet.
+        # TODO: on some models the interface is Ethernet0/0/x, not GigabitEthernet.
         return f"GigabitEthernet0/0/{port_number}"
 
     def create_vlan(self, vlan_id: int) -> None:
@@ -39,7 +40,7 @@ class HuaweiDriver(BaseDriver):
     def set_access_vlan(self, port_number: int, vlan_id: int) -> None:
         self._run(f"interface {self.iface(port_number)}")
         self._run("port link-type access")
-        # port default vlan заменяет прежний PVID доступа.
+        # port default vlan replaces the previous access PVID.
         self._run(f"port default vlan {vlan_id}")
         self._run("quit")
 
@@ -62,7 +63,7 @@ class HuaweiDriver(BaseDriver):
 
     def port_vlans(self, port_number: int) -> set[int] | None:
         # 'display port vlan <iface>': "GE0/0/5  trunk  1  1 100 253"
-        # (столбцы: интерфейс, тип, PVID, список VLAN транка).
+        # (columns: interface, type, PVID, trunk VLAN list).
         out = self._run(f"display port vlan {self.iface(port_number)}")
         if not out.strip():
             return None
@@ -74,17 +75,17 @@ class HuaweiDriver(BaseDriver):
             if not m:
                 continue
             vlans.add(int(m.group(1)))            # PVID
-            vlans |= parse_int_ranges(m.group(2))  # список VLAN транка ('-' игнорится)
+            vlans |= parse_int_ranges(m.group(2))  # trunk VLAN list ('-' is ignored)
             found = True
         return vlans if found else None
 
     def find_port_by_mac(self, mac: str) -> int | None:
         out = self._run(f"display mac-address {macfmt.huawei(mac)}")
-        # Пример: aabb-ccdd-eeff 100/-  GigabitEthernet0/0/5  dynamic
+        # Example: aabb-ccdd-eeff 100/-  GigabitEthernet0/0/5  dynamic
         m = re.search(r"(?:GigabitEthernet|Ethernet|XGigabitEthernet)\S*?(\d+)\b",
                       out, re.IGNORECASE)
         return int(m.group(1)) if m else None
 
     def save(self) -> None:
-        # save задаётся из пользовательского вида; спросит Y/N.
+        # save is issued from the user view; it asks Y/N.
         self._run_confirm("save", yes="Y")

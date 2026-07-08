@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Тонкая обёртка для запуска ``./vlanswapper.py`` без установки пакета."""
+"""Thin wrapper to run ``./vlanswapper.py`` without installing the package."""
 
 import sys
 

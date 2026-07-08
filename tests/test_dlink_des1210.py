@@ -1,7 +1,7 @@
-"""Тесты драйвера D-Link DES-1210: детект-приоритет и команды VLAN.
+"""D-Link DES-1210 driver tests: detection priority and VLAN commands.
 
-Используется recording-двойник сессии (без сети): он отдаёт заранее заданные
-ответы по подстроке команды и запоминает всё отправленное.
+Uses a recording session double (no network): it returns preset responses
+matched by command substring and remembers everything sent.
 """
 
 import types
@@ -31,7 +31,7 @@ class FakeSession:
 
     def run_expect(self, command, expect, **kw):
         self.sent.append(command)
-        return self._lookup(command), 1  # 1 = сразу промпт, без подтверждения
+        return self._lookup(command), 1  # 1 = prompt immediately, no confirmation
 
     def log(self, msg):
         pass
@@ -39,7 +39,7 @@ class FakeSession:
 
 class DetectTests(unittest.TestCase):
     def test_des1210_beats_generic_dlink(self):
-        # В баннере есть и общий 'D-Link', и конкретная модель — должен победить DES-1210.
+        # The banner has both the generic 'D-Link' and the specific model — DES-1210 must win.
         sess = FakeSession({"show switch": "Device Type : DES-1210-28 D-Link Smart Switch"})
         self.assertEqual(detect_vendor(sess), "dlink_des1210")
 
@@ -52,9 +52,9 @@ class DetectTests(unittest.TestCase):
 
 
 class VlanCommandTests(unittest.TestCase):
-    # DES-1210-28 не поддерживает 'show vlan ports <n>' — только полный 'show vlan'.
-    # Формат — как печатает реальная прошивка (метки 'Member/Untagged/Forbidden
-    # Ports', порт-аплинк 25-26 в VLAN 253 стоит в Member при пустом Untagged).
+    # The DES-1210-28 doesn't support 'show vlan ports <n>' — only the full 'show vlan'.
+    # Format matches real firmware ('Member/Untagged/Forbidden Ports' labels; the
+    # uplink ports 25-26 sit in Member for VLAN 253 with an empty Untagged).
     SHOW_VLAN = (
         "VID                : 1         VLAN NAME      : default\n"
         "VLAN Type          : Static\n"
@@ -76,32 +76,32 @@ class VlanCommandTests(unittest.TestCase):
     )
 
     def test_set_access_vlan_moves_port(self):
-        # Порт 5 сейчас untagged в VLAN 1 -> должен уйти в VLAN 105.
+        # Port 5 is currently untagged in VLAN 1 -> it should move to VLAN 105.
         sess = FakeSession({"show vlan": self.SHOW_VLAN})
         DlinkDes1210Driver(sess).set_access_vlan(5, 105)
         self.assertIn("config vlan vlanid 1 delete 5", sess.sent)
         self.assertIn("config vlan vlanid 105 add untagged 5", sess.sent)
         self.assertIn("config port_vlan 5 pvid 105", sess.sent)
-        # PVID-команда именно модельная, а не gvrp от DES-3200.
+        # The PVID command is the model-specific one, not the DES-3200 gvrp.
         self.assertFalse(any("gvrp" in c for c in sess.sent))
-        # Именно 'show vlan' без 'ports' — 'show vlan ports N' на 1210 не работает.
+        # Exactly 'show vlan' without 'ports' — 'show vlan ports N' doesn't work on the 1210.
         self.assertIn("show vlan", sess.sent)
         self.assertFalse(any("show vlan ports" in c for c in sess.sent))
 
     def test_current_untagged_vlans_parses_ranges(self):
-        # Порт 24 входит в диапазон 1-28 (VLAN 1), но не в пустой список VLAN 105.
+        # Port 24 is in the 1-28 range (VLAN 1) but not in the empty list of VLAN 105.
         sess = FakeSession({"show vlan": self.SHOW_VLAN})
         vids = DlinkDes1210Driver(sess)._current_untagged_vlans(24)
         self.assertEqual(vids, [1])
 
     def test_uplink_port_detected_via_member_ports(self):
-        # Порт 25 стоит в Member Ports VLAN 253 (untagged пуст = тегированный
-        # транк) — guard обязан распознать аплинк по 'Member Ports'.
+        # Port 25 is in Member Ports of VLAN 253 (empty untagged = tagged trunk)
+        # — the guard must recognize the uplink via 'Member Ports'.
         sess = FakeSession({"show vlan": self.SHOW_VLAN})
         drv = DlinkDes1210Driver(sess)
         self.assertIn(253, drv.port_vlans(25))
         self.assertTrue(drv.is_uplink_port(25, 253))
-        # Обычный access-порт 24 аплинком не считается.
+        # A regular access port 24 is not treated as an uplink.
         self.assertFalse(drv.is_uplink_port(24, 253))
 
     def test_find_port_by_mac(self):

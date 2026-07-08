@@ -1,4 +1,4 @@
-"""Реестр драйверов вендоров."""
+"""Vendor driver registry."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from .eltex import EltexDriver
 from .huawei import HuaweiDriver
 from .zyxel import ZyxelDriver
 
-#: имя вендора -> класс драйвера
+#: vendor name -> driver class
 REGISTRY: dict[str, type[BaseDriver]] = {
     d.name: d
     for d in (DlinkDriver, DlinkDes1210Driver, EltexDriver, HuaweiDriver,
@@ -23,7 +23,7 @@ def get_driver(name: str) -> type[BaseDriver]:
         return REGISTRY[name.lower()]
     except KeyError:
         raise DriverError(
-            f"неизвестный вендор {name!r}; доступны: {', '.join(sorted(REGISTRY))}"
+            f"unknown vendor {name!r}; available: {', '.join(sorted(REGISTRY))}"
         ) from None
 
 

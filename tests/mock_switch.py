@@ -1,8 +1,8 @@
-"""Мини-эмулятор Telnet-свитча (Eltex-подобный) для интеграционных тестов.
+"""Mini Telnet-switch emulator (Eltex-like) for integration tests.
 
-Поднимает TCP-сервер в отдельном потоке, проигрывает логин и отвечает на
-основные команды. Специально шлёт IAC-негации в баннере, чтобы проверить их
-разбор в TelnetClient.
+Starts a TCP server in a separate thread, plays back the login and answers the
+main commands. It deliberately sends IAC negotiations in the banner to exercise
+their parsing in TelnetClient.
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ class MockSwitch:
     def __init__(self, mac_port: dict[str, int] | None = None,
                  uplink_ports: set[int] | None = None):
         self.mac_port = mac_port or {"aabb.ccdd.eeff": 7}
-        self.uplink_ports = uplink_ports or set()  # порты с транком VLAN 253
-        self.received: list[str] = []       # все полученные команды (для проверок)
+        self.uplink_ports = uplink_ports or set()  # ports trunking VLAN 253
+        self.received: list[str] = []       # every command received (for assertions)
         self._srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._srv.bind(("127.0.0.1", 0))
@@ -30,7 +30,7 @@ class MockSwitch:
         self._thread.start()
         return self
 
-    # -- сервер ------------------------------------------------------------
+    # -- server ------------------------------------------------------------
     def _serve(self) -> None:
         try:
             conn, _ = self._srv.accept()
@@ -45,14 +45,14 @@ class MockSwitch:
             data = conn.recv(1)
             if not data:
                 break
-            if data[0] == IAC:            # проглотить нашу же негацию (клиент отвечает WONT/DONT)
+            if data[0] == IAC:            # swallow our own negotiation (client replies WONT/DONT)
                 conn.recv(2)
                 continue
             buf += data
         return buf.decode("latin-1").strip("\r\n")
 
     def _handle(self, conn: socket.socket) -> None:
-        # Баннер с IAC-переговорами — проверяем их фильтрацию клиентом.
+        # Banner with IAC negotiations — verifies the client filters them out.
         conn.sendall(bytes([IAC, WILL, ECHO, IAC, WILL, SGA]))
         conn.sendall(b"\r\nWelcome\r\nUser Name:")
         self._readline(conn)                      # username
@@ -115,5 +115,5 @@ class MockSwitch:
                     b"Trunking VLANs Enabled: "), prompt
         if low == "write":
             return b"Overwrite file [startup-config]? [Y/N]", prompt
-        # config-команды, exit/end, terminal datadump и т.п. — просто эхо-подтверждение.
+        # config commands, exit/end, terminal datadump, etc. — just echo/ack.
         return b"", prompt

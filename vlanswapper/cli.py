@@ -1,11 +1,11 @@
-"""Точка входа CLI: разбор аргументов, интерактивный диалог, оркестрация.
+"""CLI entry point: argument parsing, interactive dialog, orchestration.
 
-Сценарий работы:
-  1. Разобрать настройки подключения (CLI/env/config, недостающее — спросить).
-  2. Подключиться по Telnet, залогиниться, войти в enable (если нужно).
-  3. Определить вендора (или взять из --vendor) и создать драйвер.
-  4. Определить номер порта: из --port, или найти по --mac, или спросить.
-  5. Посчитать vlan = 100 + порт и выполнить swap (с подтверждением).
+Flow:
+  1. Resolve connection settings (CLI/env/config, ask for anything missing).
+  2. Connect over Telnet, log in, enter enable mode (if needed).
+  3. Detect the vendor (or take it from --vendor) and build the driver.
+  4. Determine the port number: from --port, from --mac, or by asking.
+  5. Compute vlan = 100 + port and run the swap (with confirmation).
 """
 
 from __future__ import annotations
@@ -25,31 +25,31 @@ from .telnet import TelnetClient
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="vlanswapper",
-        description="Настройка access-VLAN (vlan = 100 + номер порта) на портах свитча по Telnet.",
+        description="Configure an access VLAN (vlan = 100 + port number) on switch ports over Telnet.",
     )
-    p.add_argument("--host", help="IP/имя свитча (иначе из env/config или спросим)")
-    p.add_argument("--port-tcp", dest="port", type=int, help="TCP-порт Telnet (по умолчанию 23)")
-    p.add_argument("--username", help="логин (иначе из env/config или спросим)")
-    p.add_argument("--password", help="пароль (лучше через env/config, а не в командной строке)")
+    p.add_argument("--host", help="switch IP/host (else from env/config or we ask)")
+    p.add_argument("--port-tcp", dest="port", type=int, help="Telnet TCP port (default 23)")
+    p.add_argument("--username", help="username (else from env/config or we ask)")
+    p.add_argument("--password", help="password (prefer env/config over the command line)")
     p.add_argument("--vendor", choices=sorted(REGISTRY),
-                   help="принудительно задать вендора вместо автоопределения")
-    p.add_argument("--timeout", type=float, help="таймаут чтения, сек (по умолчанию 10)")
+                   help="force the vendor instead of autodetection")
+    p.add_argument("--timeout", type=float, help="read timeout, seconds (default 10)")
 
     target = p.add_mutually_exclusive_group()
     target.add_argument("-p", "--port", dest="switch_port", type=int,
-                        help="номер порта свитча")
-    target.add_argument("-m", "--mac", help="MAC клиента — найти порт по нему")
+                        help="switch port number")
+    target.add_argument("-m", "--mac", help="client MAC — find the port by it")
 
     p.add_argument("--uplink-vlan", type=int, default=UPLINK_VLAN,
-                   help=f"VLAN аплинка для защиты от случайной перенастройки "
-                        f"(по умолчанию {UPLINK_VLAN}; 0 — отключить проверку)")
+                   help=f"uplink VLAN guarded against accidental reconfiguration "
+                        f"(default {UPLINK_VLAN}; 0 disables the check)")
     p.add_argument("--force", action="store_true",
-                   help="настроить порт даже если он похож на аплинк (снимает защиту)")
-    p.add_argument("--no-save", action="store_true", help="не сохранять конфиг после настройки")
+                   help="configure the port even if it looks like an uplink (removes the guard)")
+    p.add_argument("--no-save", action="store_true", help="don't save the config after configuring")
     p.add_argument("--dry-run", action="store_true",
-                   help="показать команды, но не отправлять их на устройство")
-    p.add_argument("--yes", action="store_true", help="не спрашивать подтверждение")
-    p.add_argument("-v", "--verbose", action="store_true", help="печатать отправляемые команды")
+                   help="show the commands but don't send them to the device")
+    p.add_argument("--yes", action="store_true", help="don't ask for confirmation")
+    p.add_argument("-v", "--verbose", action="store_true", help="print the commands being sent")
     return p
 
 
@@ -61,48 +61,48 @@ def _logger(verbose: bool):
 
 
 def _resolve_port_from_args(driver, args) -> int:
-    """Определить порт по явным --port/--mac (неинтерактивный путь)."""
+    """Determine the port from explicit --port/--mac (non-interactive path)."""
     if args.switch_port is not None:
         return args.switch_port
     mac = macfmt.normalize(args.mac)
-    print(f"Ищу порт по MAC {macfmt.colon(mac)}...", file=sys.stderr)
+    print(f"Looking up port by MAC {macfmt.colon(mac)}...", file=sys.stderr)
     port = driver.find_port_by_mac(mac)
     if port is None:
-        raise DriverError(f"MAC {macfmt.colon(mac)} не найден в таблице коммутации")
-    print(f"MAC найден на порту {port}", file=sys.stderr)
+        raise DriverError(f"MAC {macfmt.colon(mac)} not found in the forwarding table")
+    print(f"MAC found on port {port}", file=sys.stderr)
     return port
 
 
 def _uplink_guard(driver, port: int, args) -> bool:
-    """Защита «от дурака»: не дать перенастроить порт-аплинк. Вернуть True, если можно продолжать."""
+    """Foolproof guard: don't let an uplink port be reconfigured. Return True if OK to proceed."""
     if args.force or not args.uplink_vlan:
         return True
     verdict = driver.is_uplink_port(port, args.uplink_vlan)
     if verdict is None:
-        print(f"⚠ Не удалось проверить порт {port} на аплинк (VLAN {args.uplink_vlan}) — продолжаю.",
+        print(f"⚠ Could not check port {port} for uplink (VLAN {args.uplink_vlan}) — proceeding.",
               file=sys.stderr)
         return True
     if verdict:
-        print(f"⛔ Порт {port} похоже аплинк: на нём настроен VLAN {args.uplink_vlan} (транк).\n"
-              f"   Настройка отменена, чтобы не оборвать аплинк. Повторите с --force, если уверены.",
+        print(f"⛔ Port {port} looks like an uplink: it carries VLAN {args.uplink_vlan} (trunk).\n"
+              f"   Aborted to avoid cutting the uplink. Re-run with --force if you're sure.",
               file=sys.stderr)
         return False
     return True
 
 
 def _apply(driver, port: int, args, interactive: bool) -> bool:
-    """Посчитать VLAN, подтвердить (если нужно) и выполнить swap. Вернуть успех."""
+    """Compute the VLAN, confirm (if needed) and run the swap. Return success."""
     if not _uplink_guard(driver, port, args):
         return False
     vlan_id = driver.vlan_for_port(port)
-    print(f"Порт {port} → access VLAN {vlan_id} (= {VLAN_BASE} + {port})", file=sys.stderr)
+    print(f"Port {port} → access VLAN {vlan_id} (= {VLAN_BASE} + {port})", file=sys.stderr)
     if not args.yes and interactive and not args.dry_run:
-        if input("Применить? [y/N]: ").strip().lower() not in ("y", "yes", "д", "да"):
-            print("Пропущено.", file=sys.stderr)
+        if input("Apply? [y/N]: ").strip().lower() not in ("y", "yes"):
+            print("Skipped.", file=sys.stderr)
             return False
     driver.swap(port, vlan_id, save=not args.no_save)
-    print(f"Готово: порт {port} = VLAN {vlan_id}"
-          + (" (dry-run, ничего не отправлено)" if args.dry_run else ""),
+    print(f"Done: port {port} = VLAN {vlan_id}"
+          + (" (dry-run, nothing sent)" if args.dry_run else ""),
           file=sys.stderr)
     return True
 
@@ -115,7 +115,7 @@ def run(argv=None) -> int:
     try:
         cfg = resolve(args, interactive=interactive)
     except ValueError as exc:
-        print(f"Ошибка настроек: {exc}", file=sys.stderr)
+        print(f"Settings error: {exc}", file=sys.stderr)
         return 2
 
     client = TelnetClient(cfg.host, cfg.port, timeout=cfg.timeout)
@@ -126,25 +126,25 @@ def run(argv=None) -> int:
 
         vendor = args.vendor or detect_vendor(session, prompt)
         driver = build_driver(session, vendor)
-        print(f"Вендор: {vendor}", file=sys.stderr)
+        print(f"Vendor: {vendor}", file=sys.stderr)
         driver.disable_paging()
 
-        # Явно заданный порт/MAC — одноразовый прогон. Иначе интерактивное меню.
+        # An explicit port/MAC means a one-shot run. Otherwise the interactive menu.
         if args.switch_port is not None or args.mac:
             port = _resolve_port_from_args(driver, args)
             return 0 if _apply(driver, port, args, interactive) else 1
 
         if not interactive:
-            raise ValueError("не задан порт: укажите --port или --mac")
+            raise ValueError("no port given: specify --port or --mac")
 
         return run_menu(driver, cfg.host, vendor,
                         lambda port: _apply(driver, port, args, interactive))
 
     except (TelnetError, LoginError, DriverError, ValueError) as exc:
-        print(f"Ошибка: {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
-        print("\nПрервано.", file=sys.stderr)
+        print("\nInterrupted.", file=sys.stderr)
         return 130
     finally:
         client.close()

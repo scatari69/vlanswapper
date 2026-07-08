@@ -1,11 +1,11 @@
-# Скопируйте в config.ini и заполните. IP можно не указывать здесь,
-# а передавать через --host или спрашивать в диалоге (комбинированный режим).
-# Пароли можно вынести в переменные окружения VLANSWAPPER_PASSWORD / _ENABLE.
+# Copy to config.ini and fill in. You can omit the IP here and pass it via
+# --host or answer it in the dialog (combined mode).
+# Passwords can be moved to the VLANSWAPPER_PASSWORD / _ENABLE environment variables.
 
 [switch]
 username = admin
 password = secret
-# enable_password = secret        ; только для Cisco-подобных (Eltex/BDCOM), если prompt заканчивается на >
-# host = 192.0.2.10               ; необязательно; удобнее передавать --host
+# enable_password = secret        ; only for Cisco-like devices (Eltex/BDCOM) if the prompt ends with >
+# host = 192.0.2.10               ; optional; passing --host is more convenient
 port = 23
 timeout = 10

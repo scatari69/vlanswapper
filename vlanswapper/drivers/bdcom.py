@@ -1,7 +1,7 @@
-"""Драйвер BDCOM (Cisco-подобный CLI, коммутаторы/OLT).
+"""BDCOM driver (Cisco-like CLI, switches/OLTs).
 
-Близок к IOS, но доступ к порту задаётся через ``switchport pvid`` вместо
-``switchport access vlan``. Имя интерфейса — ``GigaEthernet0/N``.
+Close to IOS, but port access is set via ``switchport pvid`` instead of
+``switchport access vlan``. The interface name is ``GigaEthernet0/N``.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ class BdcomDriver(BaseDriver):
     name = "bdcom"
     detect_markers = ("bdcom", "gpon", "epon olt")
     mac_table_cmd = "show mac address-table"
-    port_status_cmd = "show interface status"  # TODO: сверить формат на серии
+    port_status_cmd = "show interface status"  # TODO: verify the format per series
 
     def disable_paging(self) -> None:
         self._run("terminal length 0")
@@ -28,7 +28,7 @@ class BdcomDriver(BaseDriver):
         self._run("end")
 
     def iface(self, port_number: int) -> str:
-        # TODO: на некоторых платформах TGigaEthernet/GigaEthernet0/0/N.
+        # TODO: on some platforms TGigaEthernet/GigaEthernet0/0/N.
         return f"GigaEthernet0/{port_number}"
 
     def create_vlan(self, vlan_id: int) -> None:
@@ -38,7 +38,7 @@ class BdcomDriver(BaseDriver):
     def set_access_vlan(self, port_number: int, vlan_id: int) -> None:
         self._run(f"interface {self.iface(port_number)}")
         self._run("switchport mode access")
-        # switchport pvid заменяет прежний access-VLAN.
+        # switchport pvid replaces the previous access VLAN.
         self._run(f"switchport pvid {vlan_id}")
         self._run("exit")
 

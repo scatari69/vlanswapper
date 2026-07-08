@@ -1,11 +1,10 @@
-"""Минимальный Telnet-клиент на голом сокете.
+"""Minimal Telnet client on a raw socket.
 
-Причина существования: в Python 3.13 из стандартной библиотеки удалён
-``telnetlib``, а внешние библиотеки (netmiko/telnetlib3) в целевом окружении
-недоступны. Класс реализует ровно столько протокола Telnet (RFC 854), сколько
-нужно для общения с CLI сетевого железа: разбор IAC-последовательностей и отказ
-от всех предлагаемых опций. Этого достаточно для строкового режима, в котором
-работают все поддерживаемые свитчи.
+Reason it exists: Python 3.13 removed ``telnetlib`` from the standard library,
+and external libraries (netmiko/telnetlib3) are unavailable in the target
+environment. This class implements just enough of the Telnet protocol (RFC 854)
+to talk to network-gear CLIs: parsing IAC sequences and refusing every offered
+option. That is enough for the line mode all supported switches run in.
 """
 
 from __future__ import annotations
@@ -14,29 +13,29 @@ import re
 import socket
 import time
 
-# Управляющие байты Telnet (RFC 854).
+# Telnet control bytes (RFC 854).
 IAC = 255   # Interpret As Command
 DONT = 254
 DO = 253
 WONT = 252
 WILL = 251
-SB = 250    # начало подпереговоров
-SE = 240    # конец подпереговоров
-# Коды опций, встречающиеся в переговорах (нужны в тестах/справочно).
+SB = 250    # start of subnegotiation
+SE = 240    # end of subnegotiation
+# Option codes seen in negotiations (needed for tests/reference).
 ECHO = 1
 SGA = 3
 
 
 class TelnetError(Exception):
-    """Ошибка транспорта Telnet (таймаут, разрыв соединения и т.п.)."""
+    """A Telnet transport error (timeout, dropped connection, etc.)."""
 
 
 class TelnetClient:
-    """Простой блокирующий Telnet-клиент.
+    """A simple blocking Telnet client.
 
-    Держит внутренний буфер уже «очищенного» от IAC текста. Методы чтения
-    работают именно с этим буфером, а негации протокола обрабатываются
-    прозрачно в ``_feed``.
+    Keeps an internal buffer of text already stripped of IAC. The read methods
+    work with that buffer, while protocol negotiations are handled transparently
+    in ``_feed``.
     """
 
     def __init__(self, host: str, port: int = 23, timeout: float = 10.0):
@@ -44,15 +43,15 @@ class TelnetClient:
         self.port = port
         self.timeout = timeout
         self._sock: socket.socket | None = None
-        self._buf = bytearray()      # очищенный от IAC поток (то, что «напечатал» свитч)
-        self._raw = bytearray()      # незавершённый хвост IAC-последовательности
+        self._buf = bytearray()      # IAC-stripped stream (what the switch "printed")
+        self._raw = bytearray()      # unfinished tail of an IAC sequence
 
-    # -- жизненный цикл -----------------------------------------------------
+    # -- lifecycle ----------------------------------------------------------
     def open(self) -> None:
         try:
             self._sock = socket.create_connection((self.host, self.port), self.timeout)
-        except OSError as exc:  # pragma: no cover - зависит от сети
-            raise TelnetError(f"не удалось подключиться к {self.host}:{self.port}: {exc}") from exc
+        except OSError as exc:  # pragma: no cover - network dependent
+            raise TelnetError(f"could not connect to {self.host}:{self.port}: {exc}") from exc
         self._sock.settimeout(self.timeout)
 
     def close(self) -> None:
@@ -69,33 +68,33 @@ class TelnetClient:
     def __exit__(self, *exc) -> None:
         self.close()
 
-    # -- запись -------------------------------------------------------------
+    # -- writing ------------------------------------------------------------
     def write(self, data: str) -> None:
         if self._sock is None:
-            raise TelnetError("соединение не открыто")
+            raise TelnetError("connection not open")
         payload = data.encode("ascii", errors="replace")
-        # Экранируем одиночный IAC в пользовательских данных (маловероятно, но корректно).
+        # Escape a bare IAC in user data (unlikely, but correct).
         payload = payload.replace(bytes([IAC]), bytes([IAC, IAC]))
         self._sock.sendall(payload)
 
     def write_line(self, data: str = "", newline: str = "\r\n") -> None:
         self.write(data + newline)
 
-    # -- чтение -------------------------------------------------------------
+    # -- reading ------------------------------------------------------------
     def _recv(self) -> bytes:
         assert self._sock is not None
         try:
             chunk = self._sock.recv(4096)
         except socket.timeout:
             return b""
-        except OSError as exc:  # pragma: no cover - зависит от сети
-            raise TelnetError(f"ошибка чтения: {exc}") from exc
+        except OSError as exc:  # pragma: no cover - network dependent
+            raise TelnetError(f"read error: {exc}") from exc
         if chunk == b"":
-            raise TelnetError("соединение закрыто удалённой стороной")
+            raise TelnetError("connection closed by the remote side")
         return chunk
 
     def _feed(self, data: bytes) -> None:
-        """Разобрать сырой поток: ответить на негации, выкинуть IAC, дописать текст."""
+        """Parse the raw stream: answer negotiations, drop IAC, append the text."""
         buf = self._raw + data
         self._raw = bytearray()
         out = bytearray()
@@ -107,12 +106,12 @@ class TelnetClient:
                 out.append(b)
                 i += 1
                 continue
-            # Нашли IAC — нужен минимум ещё один байт.
+            # Found IAC — we need at least one more byte.
             if i + 1 >= n:
                 self._raw = bytearray(buf[i:])
                 break
             cmd = buf[i + 1]
-            if cmd == IAC:  # экранированный 0xFF -> один байт данных
+            if cmd == IAC:  # escaped 0xFF -> a single data byte
                 out.append(IAC)
                 i += 2
             elif cmd in (DO, DONT, WILL, WONT):
@@ -121,25 +120,25 @@ class TelnetClient:
                     break
                 self._refuse(cmd, buf[i + 2])
                 i += 3
-            elif cmd == SB:  # подпереговоры до IAC SE — просто проглатываем
+            elif cmd == SB:  # subnegotiation up to IAC SE — just swallow it
                 end = buf.find(bytes([IAC, SE]), i + 2)
                 if end == -1:
                     self._raw = bytearray(buf[i:])
                     break
                 i = end + 2
-            else:  # прочие двухбайтовые команды (NOP, DM, ...)
+            else:  # other two-byte commands (NOP, DM, ...)
                 i += 2
         self._buf += out
 
     def _refuse(self, cmd: int, option: int) -> None:
-        """Отклонить любую предложенную опцию (держим «немой» строковый режим)."""
+        """Reject every offered option (keep a dumb line mode)."""
         if self._sock is None:
             return
         if cmd == DO:
             resp = bytes([IAC, WONT, option])
         elif cmd == WILL:
             resp = bytes([IAC, DONT, option])
-        else:  # на DONT/WONT отвечать не требуется
+        else:  # DONT/WONT need no reply
             return
         try:
             self._sock.sendall(resp)
@@ -147,11 +146,11 @@ class TelnetClient:
             pass
 
     def read_until_re(self, patterns, timeout: float | None = None) -> tuple[str, int]:
-        """Читать, пока в буфере не встретится один из regex ``patterns``.
+        """Read until one of the regex ``patterns`` appears in the buffer.
 
-        Возвращает ``(накопленный_текст, индекс_сработавшего_паттерна)``.
-        При таймауте бросает :class:`TelnetError` с уже прочитанным текстом в
-        аргументе, чтобы вызывающий код мог его залогировать.
+        Returns ``(accumulated_text, index_of_matched_pattern)``. On timeout it
+        raises :class:`TelnetError` with the already-read text in the message so
+        the caller can log it.
         """
         compiled = [p if hasattr(p, "search") else re.compile(p, re.IGNORECASE) for p in patterns]
         deadline = time.monotonic() + (timeout if timeout is not None else self.timeout)
@@ -163,14 +162,14 @@ class TelnetClient:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TelnetError(
-                    f"таймаут ожидания {[p.pattern for p in compiled]}; получено:\n{text}"
+                    f"timed out waiting for {[p.pattern for p in compiled]}; received:\n{text}"
                 )
             if self._sock is not None:
                 self._sock.settimeout(min(remaining, self.timeout))
             self._feed(self._recv())
 
     def drain(self, idle: float = 0.5) -> str:
-        """Дочитать всё, что успело прийти, за короткий «тихий» интервал."""
+        """Read whatever has arrived during a short quiet interval."""
         assert self._sock is not None
         end = time.monotonic() + idle
         self._sock.settimeout(idle)
@@ -189,7 +188,7 @@ class TelnetClient:
         return text
 
     def take_buffer(self) -> str:
-        """Забрать и очистить накопленный текст."""
+        """Take and clear the accumulated text."""
         text = self._buf.decode("latin-1", errors="replace")
         self._buf = bytearray()
         return text

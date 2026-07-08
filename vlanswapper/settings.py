@@ -1,7 +1,7 @@
-"""Разрешение параметров подключения из конфиг-файла, окружения и CLI.
+"""Resolving connection parameters from the config file, environment and CLI.
 
-Приоритет (по убыванию): аргумент командной строки → переменная окружения →
-config.ini → интерактивный запрос. Пароль в интерактиве читается через getpass.
+Priority (descending): command-line argument → environment variable →
+config.ini → interactive prompt. The password is read via getpass interactively.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def _load_ini(path: Path | None) -> dict[str, str]:
 
 
 def resolve(args, config_path: Path | None = None, interactive: bool = True) -> Settings:
-    """Собрать :class:`Settings`, дозапрашивая недостающее у пользователя."""
+    """Build :class:`Settings`, prompting the user for anything missing."""
     ini = _load_ini(config_path)
 
     def pick(key: str, default=None):
@@ -62,24 +62,24 @@ def resolve(args, config_path: Path | None = None, interactive: bool = True) -> 
 
     host = pick("host")
     if not host and interactive:
-        host = input("IP/имя свитча: ").strip()
+        host = input("Switch IP/host: ").strip()
     if not host:
-        raise ValueError("не задан адрес свитча (--host / VLANSWAPPER_HOST / config.ini)")
+        raise ValueError("no switch address given (--host / VLANSWAPPER_HOST / config.ini)")
 
     username = pick("username")
     if not username and interactive:
-        username = input("Логин: ").strip()
+        username = input("Username: ").strip()
 
     password = pick("password")
     if not password and interactive:
-        password = getpass.getpass("Пароль: ")
+        password = getpass.getpass("Password: ")
 
     enable_password = pick("enable_password")
     port = int(pick("port", 23) or 23)
     timeout = float(getattr(args, "timeout", None) or ini.get("timeout", 10.0))
 
     if not username or password is None:
-        raise ValueError("не заданы логин/пароль")
+        raise ValueError("username/password not set")
 
     return Settings(
         host=host,

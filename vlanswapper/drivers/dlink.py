@@ -1,12 +1,13 @@
-"""Драйвер D-Link (традиционный CLI: DES-3200/DGS-3xxx и подобные).
+"""D-Link driver (traditional CLI: DES-3200/DGS-3xxx and similar).
 
-Особенность D-Link: нет режима конфигурации и нет ``switchport access vlan`` —
-членство в VLAN настраивается однострочными командами ``config vlan ... add
-untagged`` плюс отдельная установка PVID. Поэтому «снять старый VLAN» приходится
-делать явно: найти текущий untagged-VLAN порта и удалить его оттуда.
+D-Link's quirk: there is no configuration mode and no ``switchport access
+vlan`` — VLAN membership is configured with one-line ``config vlan ... add
+untagged`` commands plus a separate PVID setting. So "removing the old VLAN"
+must be done explicitly: find the port's current untagged VLAN and delete it
+from there.
 
-Синтаксис сильно зависит от серии/прошивки (особенно команда PVID) — отмечено
-TODO. Проверяйте на конкретной модели.
+The syntax depends heavily on the series/firmware (especially the PVID
+command) — marked TODO. Verify on the specific model.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ class DlinkDriver(BaseDriver):
     def disable_paging(self) -> None:
         self._run("disable clipaging")
 
-    # У D-Link нет отдельного режима конфигурации.
+    # D-Link has no separate configuration mode.
     def enter_config(self) -> None:
         pass
 
@@ -37,17 +38,17 @@ class DlinkDriver(BaseDriver):
         return str(port_number)
 
     def create_vlan(self, vlan_id: int) -> None:
-        # Если VLAN уже есть — команда вернёт ошибку, это не фатально.
+        # If the VLAN already exists the command returns an error — not fatal.
         out = self._run(f"create vlan vlan{vlan_id} tag {vlan_id}")
         if "fail" in out.lower() and "already" not in out.lower():
-            self.s.log(f"[dlink] create vlan вернул: {out.strip()}")
+            self.s.log(f"[dlink] create vlan returned: {out.strip()}")
 
     def _current_untagged_vlans(self, port_number: int) -> list[int]:
-        """Найти VID'ы, где порт сейчас untagged-член (обычно один)."""
+        """Find the VIDs where the port is currently an untagged member (usually one)."""
         out = self._run(f"show vlan ports {port_number}")
         vids: list[int] = []
         for line in out.splitlines():
-            # Формат: <port> <VID> <Untagged X/-> <Tagged> <Forbidden>
+            # Format: <port> <VID> <Untagged X/-> <Tagged> <Forbidden>
             m = re.match(r"\s*\d+\s+(\d+)\s+(\S+)", line)
             if m and m.group(2).upper() in ("X", "E", "UNTAGGED"):
                 vids.append(int(m.group(1)))
@@ -55,7 +56,7 @@ class DlinkDriver(BaseDriver):
 
     def port_vlans(self, port_number: int) -> set[int] | None:
         # 'show vlan ports <n>': <port> <VID> <Untagged X/-> <Tagged X/-> ...
-        # Для «защиты от дурака» считаем членство и untagged, и tagged (транк).
+        # For the foolproof guard, count membership both untagged and tagged (trunk).
         out = self._run(f"show vlan ports {port_number}")
         if not out.strip():
             return None
@@ -74,13 +75,13 @@ class DlinkDriver(BaseDriver):
             if old != vlan_id:
                 self._run(f"config vlan vlanid {old} delete {port_number}")
         self._run(f"config vlan vlanid {vlan_id} add untagged {port_number}")
-        # TODO: команда PVID зависит от серии. На DES-3200 — 'config gvrp ports'.
+        # TODO: the PVID command depends on the series. On DES-3200 it's 'config gvrp ports'.
         self._run(f"config gvrp ports {port_number} pvid {vlan_id}")
 
     def parse_port_status(self, output: str) -> list[tuple[int, str]]:
         # 'show ports': "1  Enabled/Auto  Auto/Disabled  Link Down  Enabled".
-        # 2-й столбец — админ-состояние (Enabled/Disabled), в Connection —
-        # 'Link Down' у погашенного линка либо скорость (100M/Full и т.п.) у поднятого.
+        # 2nd column is the admin state (Enabled/Disabled); the Connection column
+        # shows 'Link Down' for a down link or a speed (100M/Full etc.) for an up one.
         rows: list[tuple[int, str]] = []
         for line in output.splitlines():
             m = re.match(r"\s*(\d+)", line)
@@ -100,7 +101,7 @@ class DlinkDriver(BaseDriver):
 
     def find_port_by_mac(self, mac: str) -> int | None:
         out = self._run(f"show fdb mac_address {macfmt.dash(mac)}")
-        # Формат: VID  VLAN_Name  MAC_Address  Port  Type
+        # Format: VID  VLAN_Name  MAC_Address  Port  Type
         m = re.search(r"([0-9a-fA-F-]{17})\s+(\d+)\s+(?:Dynamic|Static|Self)",
                       out, re.IGNORECASE)
         if m:
@@ -110,4 +111,4 @@ class DlinkDriver(BaseDriver):
     def save(self) -> None:
         out = self._run_confirm("save", confirm_re=r"\(y/n\)|\[y/n\]")
         if "fail" in out.lower():
-            raise DriverError(f"сохранение не удалось: {out.strip()}")
+            raise DriverError(f"save failed: {out.strip()}")

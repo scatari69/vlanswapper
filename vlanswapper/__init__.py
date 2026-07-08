@@ -1,7 +1,7 @@
-"""vlanswapper — настройка access-VLAN на портах свитчей по Telnet.
+"""vlanswapper — configure access VLANs on switch ports over Telnet.
 
-VLAN назначается по формуле ``vlan = 100 + номер_порта``. Поддерживаются
-D-Link, Eltex, Huawei, BDCOM, Zyxel с автоопределением вендора.
+The VLAN is assigned by the rule ``vlan = 100 + port_number``. D-Link, Eltex,
+Huawei, BDCOM and Zyxel are supported, with automatic vendor detection.
 """
 
 from __future__ import annotations

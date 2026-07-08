@@ -1,134 +1,134 @@
 # vlanswapper
 
-Скрипт для настройки access-VLAN на портах коммутатора по **Telnet**. VLAN
-назначается по формуле:
+A tool for configuring an access VLAN on switch ports over **Telnet**. The VLAN
+is assigned by the rule:
 
 ```
-vlan_id = 100 + номер_порта
+vlan_id = 100 + port_number
 ```
 
-Порт можно указать номером или найти автоматически по MAC-адресу клиента.
-Вендор определяется автоматически при подключении.
+The port can be given by number or found automatically by the client's MAC
+address. The vendor is detected automatically on connect.
 
-## Поддерживаемые вендоры
+## Supported vendors
 
 D-Link · Eltex · Huawei · BDCOM · Zyxel
 
-Отдельно есть драйвер под конкретную модель **D-Link DES-1210** (`--vendor
-dlink_des1210`) — Smart Managed серия с урезанным CLI; автодетект выбирает его
-вместо общего D-Link по маркеру `DES-1210` в баннере. CLI по Telnet доступен
-только на прошивках ревизий C1/F и новее.
+There is also a driver for the specific **D-Link DES-1210** model (`--vendor
+dlink_des1210`) — a Smart Managed series with a stripped-down CLI; autodetect
+picks it over the generic D-Link based on the `DES-1210` marker in the banner.
+The Telnet CLI is available only on firmware revisions C1/F and newer.
 
-> Синтаксис CLI сильно зависит от серии и версии прошивки. Шаблоны команд —
-> best-effort, места с расхождениями отмечены `# TODO` в драйверах
-> (`vlanswapper/drivers/*.py`). Перед боевым применением проверьте на своей
-> модели через `--dry-run` + `--vendor`.
+> The CLI syntax depends heavily on the series and firmware version. The command
+> templates are best-effort; spots that vary are marked `# TODO` in the drivers
+> (`vlanswapper/drivers/*.py`). Before production use, verify against your model
+> with `--dry-run` + `--vendor`.
 
-## Требования
+## Requirements
 
-Только стандартная библиотека **Python 3.11+**. Внешних зависимостей нет
-(собственный минимальный Telnet-клиент на сокетах, т.к. `telnetlib` удалён из
-stdlib в Python 3.13).
+Standard library only, **Python 3.11+**. No external dependencies (a minimal
+socket-based Telnet client is bundled, since `telnetlib` was removed from the
+stdlib in Python 3.13).
 
-## Установка
+## Installation
 
-Установка не требуется — достаточно склонировать и запускать `vlanswapper.py`.
+No installation required — just clone and run `vlanswapper.py`.
 
 ```bash
-cp config.ini.example config.ini   # вписать логин/пароль
+cp config.ini.example config.ini   # fill in the username/password
 ```
 
-## Использование
+## Usage
 
-### Интерактивный режим (меню)
+### Interactive mode (menu)
 
-Запуск без `--port`/`--mac` — скрипт спросит IP свитча, подключится, определит
-вендора и покажет меню:
+Running without `--port`/`--mac` — the script asks for the switch IP, connects,
+detects the vendor and shows a menu:
 
 ```
 $ python3 vlanswapper.py
-IP/имя свитча: 192.0.2.10
-Логин: admin
-Пароль:
-Вендор: eltex
+Switch IP/host: 192.0.2.10
+Username: admin
+Password:
+Vendor: eltex
 
-=== Свитч 192.0.2.10 (eltex) ===
-  1. Указать номер порта
-  2. Найти порт по MAC-адресу
-  3. Просмотреть MAC-таблицу
-  4. Просмотреть список портов
-  0. Выход
-Выбор:
+=== Switch 192.0.2.10 (eltex) ===
+  1. Enter port number
+  2. Find port by MAC address
+  3. Show MAC table
+  4. Show port list
+  0. Quit
+Choice:
 ```
 
-После настройки порта меню появляется снова — за одно подключение можно
-настроить несколько портов.
+After a port is configured the menu appears again — several ports can be
+configured over one connection.
 
-Пункты **3** и **4** — только просмотр, ничего не меняют:
+Items **3** and **4** are read-only and change nothing:
 
-* **3. MAC-таблица** — полный дамп FDB коммутатора «как есть».
-* **4. Список портов** — каждый порт со статусом линка в виде эмодзи (и цветом
-  в терминале): 🟢 up · 🔴 down · ⚫ disabled.
+* **3. MAC table** — the switch's full FDB dump, verbatim.
+* **4. Port list** — each port with its link status shown as an emoji (and color
+  in a terminal): 🟢 up · 🔴 down · ⚫ disabled.
 
-## Защита аплинка «от дурака»
+## Uplink foolproof guard
 
-Перед настройкой порта скрипт проверяет, не несёт ли он уже **аплинковый VLAN**
-(по умолчанию `253`) — как access или тегированным в транке. Если да, настройка
-отменяется, чтобы случайно не оборвать аплинк:
+Before configuring a port the script checks whether it already carries the
+**uplink VLAN** (default `253`) — either as access or tagged in a trunk. If so,
+the change is cancelled to avoid accidentally cutting the uplink:
 
 ```
-⛔ Порт 25 похоже аплинк: на нём настроен VLAN 253 (транк).
-   Настройка отменена, чтобы не оборвать аплинк. Повторите с --force, если уверены.
+⛔ Port 25 looks like an uplink: it carries VLAN 253 (trunk).
+   Aborted to avoid cutting the uplink. Re-run with --force if you're sure.
 ```
 
-* `--force` — снять защиту и настроить порт всё равно;
-* `--uplink-vlan N` — задать свой номер VLAN аплинка (по умолчанию `253`);
-* `--uplink-vlan 0` — полностью отключить проверку.
+* `--force` — lift the guard and configure the port anyway;
+* `--uplink-vlan N` — set your own uplink VLAN number (default `253`);
+* `--uplink-vlan 0` — disable the check entirely.
 
-Если текущие VLAN'ы порта определить не удалось (незнакомый формат вывода,
-`--dry-run`), скрипт не блокирует, а лишь предупреждает и продолжает.
+If the port's current VLANs can't be determined (unfamiliar output format,
+`--dry-run`), the script doesn't block — it only warns and proceeds.
 
-### Неинтерактивный режим (аргументы)
+### Non-interactive mode (arguments)
 
 ```bash
-# Порт задан явно, IP спросит интерактивно:
+# Port given explicitly, IP asked interactively:
 python3 vlanswapper.py --port 5
 
-# Всё через аргументы, без вопросов:
+# Everything via arguments, no questions:
 python3 vlanswapper.py --host 192.0.2.10 --port 5 --yes
 
-# Найти порт по MAC клиента:
+# Find the port by the client's MAC:
 python3 vlanswapper.py --host 192.0.2.10 --mac aa:bb:cc:dd:ee:ff
 
-# Настроить порт, даже если он похож на аплинк (снять защиту VLAN 253):
+# Configure a port even if it looks like an uplink (lift the VLAN 253 guard):
 python3 vlanswapper.py --host 192.0.2.10 --port 25 --force --yes
 
-# Посмотреть команды, ничего не отправляя (для dry-run нужен явный --vendor,
-# т.к. автодетект требует живого ответа устройства):
+# Preview the commands without sending anything (dry-run needs an explicit
+# --vendor, since autodetect requires a live device response):
 python3 vlanswapper.py --host 192.0.2.10 --port 5 --vendor eltex --dry-run
 ```
 
-### Откуда берутся параметры доступа
+### Where connection parameters come from
 
-Приоритет: **аргумент CLI → переменная окружения → `config.ini` → вопрос в
-диалоге**. Пароль в диалоге читается скрыто (`getpass`).
+Priority: **CLI argument → environment variable → `config.ini` → interactive
+prompt**. The password is read hidden in the dialog (`getpass`).
 
-| Параметр | CLI | Env | config.ini `[switch]` |
-|----------|-----|-----|------------------------|
-| адрес | `--host` | `VLANSWAPPER_HOST` | `host` |
-| логин | `--username` | `VLANSWAPPER_USER` | `username` |
-| пароль | `--password` | `VLANSWAPPER_PASSWORD` | `password` |
-| enable-пароль | — | `VLANSWAPPER_ENABLE` | `enable_password` |
-| TCP-порт | `--port-tcp` | `VLANSWAPPER_PORT` | `port` |
+| Parameter | CLI | Env | config.ini `[switch]` |
+|-----------|-----|-----|------------------------|
+| address | `--host` | `VLANSWAPPER_HOST` | `host` |
+| username | `--username` | `VLANSWAPPER_USER` | `username` |
+| password | `--password` | `VLANSWAPPER_PASSWORD` | `password` |
+| enable password | — | `VLANSWAPPER_ENABLE` | `enable_password` |
+| TCP port | `--port-tcp` | `VLANSWAPPER_PORT` | `port` |
 
-`enable_password` нужен для Cisco-подобных (Eltex/BDCOM), если после логина
-приглашение заканчивается на `>`.
+`enable_password` is needed for Cisco-like devices (Eltex/BDCOM) when the prompt
+ends with `>` after login.
 
-## Тесты
+## Tests
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-Интеграционные тесты гоняются против встроенного mock-свитча
-(`tests/mock_switch.py`) — реальное железо не требуется.
+The integration tests run against the bundled mock switch
+(`tests/mock_switch.py`) — no real hardware required.

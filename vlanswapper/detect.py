@@ -1,8 +1,8 @@
-"""Автоопределение вендора по выводу version-команд и приглашению.
+"""Vendor autodetection from version-command output and the prompt.
 
-Логика: перебираем нейтральные команды показа версии (у каждого вендора своя),
-собираем ответы и ищем в них вендор-специфичные маркеры. Дополнительно
-учитываем текст приглашения — иногда в нём уже есть имя устройства.
+Logic: run neutral show-version commands (each vendor has its own), collect the
+replies and look for vendor-specific markers in them. The prompt text is also
+taken into account — sometimes it already contains the device name.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 from .drivers import REGISTRY, BaseDriver, DriverError
 from .session import Session
 
-# Команды, безопасные для показа версии/платформы на разных CLI.
+# Commands that are safe for showing the version/platform across CLIs.
 PROBE_COMMANDS = (
     "show version",      # Eltex, BDCOM, Zyxel
     "display version",   # Huawei
@@ -19,24 +19,24 @@ PROBE_COMMANDS = (
 
 
 def detect_vendor(session: Session, prompt: str = "") -> str:
-    """Вернуть имя вендора из :data:`REGISTRY` или бросить :class:`DriverError`."""
+    """Return a vendor name from :data:`REGISTRY` or raise :class:`DriverError`."""
     haystack = prompt.lower()
     for cmd in PROBE_COMMANDS:
         try:
             out = session.run(cmd, timeout=session.c.timeout)
-        except Exception as exc:  # таймаут/ошибка на неподдерживаемой команде — пропускаем
-            session.log(f"[detect] '{cmd}' не отработала: {exc}")
+        except Exception as exc:  # timeout/error on an unsupported command — skip
+            session.log(f"[detect] '{cmd}' failed: {exc}")
             continue
         haystack += "\n" + out.lower()
         vendor = _match(haystack)
         if vendor:
-            session.log(f"[detect] вендор определён как {vendor} по '{cmd}'")
+            session.log(f"[detect] vendor identified as {vendor} via '{cmd}'")
             return vendor
     vendor = _match(haystack)
     if vendor:
         return vendor
     raise DriverError(
-        "не удалось определить вендора автоматически; укажите его через --vendor"
+        "could not detect the vendor automatically; specify it with --vendor"
     )
 
 
@@ -45,8 +45,8 @@ def _match(text: str) -> str | None:
     best_len = 0
     for name, cls in REGISTRY.items():
         for marker in cls.detect_markers:
-            # Самый длинный совпавший маркер = самый специфичный: 'des-1210'
-            # должен побеждать общий 'des-' у базового D-Link.
+            # The longest matching marker = the most specific: 'des-1210'
+            # must beat the generic 'des-' of the base D-Link.
             if marker in text and len(marker) > best_len:
                 best_name, best_len = name, len(marker)
     return best_name

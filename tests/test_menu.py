@@ -1,4 +1,4 @@
-"""Тест интерактивного меню против mock-свитча (input/isatty подменяются)."""
+"""Interactive-menu test against the mock switch (input/isatty are patched)."""
 
 import unittest
 from unittest import mock
@@ -28,17 +28,17 @@ class MenuTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         joined = "\n".join(sw.received)
         self.assertIn("show mac address-table address", joined)
-        self.assertIn("switchport access vlan 107", joined)  # порт 7 -> VLAN 107
+        self.assertIn("switchport access vlan 107", joined)  # port 7 -> VLAN 107
 
     def test_menu_show_mac_table(self):
         sw = MockSwitch(mac_port={"aabb.ccdd.eeff": 7}).start()
         rc = _run_with_input(sw, ["3", "0"])
         self.assertEqual(rc, 0)
         joined = "\n".join(sw.received)
-        # Полный дамп таблицы, без адреса — новый пункт меню.
+        # Full table dump, no address — the new menu item.
         self.assertIn("show mac address-table", joined)
         self.assertFalse(any("show mac address-table address" in c for c in sw.received))
-        # Просмотр таблицы не должен ничего конфигурировать.
+        # Viewing the table must not configure anything.
         self.assertNotIn("switchport access vlan", joined)
 
     def test_menu_show_ports(self):
@@ -49,30 +49,30 @@ class MenuTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         joined = "\n".join(sw.received)
         self.assertIn("show interfaces status", joined)
-        # Просмотр списка портов ничего не конфигурирует.
+        # Viewing the port list configures nothing.
         self.assertNotIn("switchport access vlan", joined)
-        # Собранное для печати: порт → статус (up/down/disabled).
+        # What was collected for printing: port → status (up/down/disabled).
         printed = "".join(str(c.args[0]) for c in err.write.call_args_list if c.args)
         self.assertIn("🟢", printed)  # gi1/0/1 connected -> up
         self.assertIn("🔴", printed)  # gi1/0/2 notconnect -> down
         self.assertIn("⚫", printed)  # gi1/0/3 disabled
 
     def test_uplink_port_blocked(self):
-        # Порт 5 — аплинк (транк VLAN 253): защита должна отменить настройку.
+        # Port 5 is an uplink (VLAN 253 trunk): the guard must cancel the change.
         sw = MockSwitch(uplink_ports={5}).start()
         rc = _run_with_input(sw, ["1", "5", "0"])
-        self.assertEqual(rc, 0)  # меню завершилось штатно (пункт отменён, не ошибка)
+        self.assertEqual(rc, 0)  # the menu exited normally (item cancelled, not an error)
         self.assertNotIn("switchport access vlan 105", "\n".join(sw.received))
 
     def test_uplink_port_forced(self):
-        # С --force защита снимается и порт настраивается.
+        # With --force the guard is lifted and the port is configured.
         sw = MockSwitch(uplink_ports={5}).start()
         rc = _run_with_input(sw, ["1", "5", "y", "0"], extra=["--force"])
         self.assertEqual(rc, 0)
         self.assertIn("switchport access vlan 105", "\n".join(sw.received))
 
     def test_uplink_guard_off_allows(self):
-        # --uplink-vlan 0 полностью отключает проверку.
+        # --uplink-vlan 0 disables the check entirely.
         sw = MockSwitch(uplink_ports={5}).start()
         rc = _run_with_input(sw, ["1", "5", "y", "0"], extra=["--uplink-vlan", "0"])
         self.assertEqual(rc, 0)
@@ -82,7 +82,7 @@ class MenuTests(unittest.TestCase):
         sw = MockSwitch().start()
         rc = _run_with_input(sw, ["0"])
         self.assertEqual(rc, 0)
-        # После логина/детекта конфигурационных команд быть не должно.
+        # After login/detect there must be no configuration commands.
         self.assertNotIn("configure terminal", sw.received)
 
 

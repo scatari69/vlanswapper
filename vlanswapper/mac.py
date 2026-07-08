@@ -1,4 +1,4 @@
-"""Нормализация MAC-адресов под разные вендорские форматы."""
+"""MAC-address normalization into the various vendor formats."""
 
 from __future__ import annotations
 
@@ -8,15 +8,15 @@ _HEX = re.compile(r"[0-9a-fA-F]")
 
 
 def normalize(mac: str) -> str:
-    """Привести MAC к 12 hex-символам в нижнем регистре без разделителей.
+    """Reduce a MAC to 12 lowercase hex chars with no separators.
 
-    Принимает любые распространённые формы: ``aa:bb:cc:dd:ee:ff``,
-    ``aabb.ccdd.eeff``, ``AA-BB-CC-DD-EE-FF``, ``aabbccddeeff``.
-    Бросает :class:`ValueError`, если это не похоже на MAC.
+    Accepts any common form: ``aa:bb:cc:dd:ee:ff``, ``aabb.ccdd.eeff``,
+    ``AA-BB-CC-DD-EE-FF``, ``aabbccddeeff``.
+    Raises :class:`ValueError` if it doesn't look like a MAC.
     """
     digits = "".join(_HEX.findall(mac))
     if len(digits) != 12:
-        raise ValueError(f"некорректный MAC-адрес: {mac!r}")
+        raise ValueError(f"invalid MAC address: {mac!r}")
     return digits.lower()
 
 
@@ -31,7 +31,7 @@ def colon(mac: str) -> str:
 
 
 def dot(mac: str) -> str:
-    """aabb.ccdd.eeff — Cisco-подобный формат."""
+    """aabb.ccdd.eeff — Cisco-like format."""
     return _grouped(mac, 4, ".")
 
 

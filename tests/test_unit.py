@@ -1,4 +1,4 @@
-"""Юнит-тесты без сети: форматы MAC и разбор IAC в TelnetClient."""
+"""Network-free unit tests: MAC formats and IAC parsing in TelnetClient."""
 
 import unittest
 
@@ -28,7 +28,7 @@ class MacTests(unittest.TestCase):
 
 class PortStatusParsingTests(unittest.TestCase):
     def _drv(self, cls):
-        return cls.__new__(cls)  # парсеры не трогают сессию
+        return cls.__new__(cls)  # the parsers don't touch the session
 
     def test_cisco_like_status(self):
         out = ("Port      Status\n"
@@ -93,7 +93,7 @@ class UplinkGuardTests(unittest.TestCase):
 
     def test_dlink_show_vlan_ports_counts_tagged(self):
         out = ("  24   1    -    -    -\n"
-               "  24   253  -    X    -\n")  # 253 tagged (транк)
+               "  24   253  -    X    -\n")  # 253 tagged (trunk)
         drv = self._drv(DlinkDriver, out)
         self.assertIn(253, drv.port_vlans(24))
         self.assertTrue(drv.is_uplink_port(24, 253))
@@ -101,7 +101,7 @@ class UplinkGuardTests(unittest.TestCase):
 
 class TelnetParsingTests(unittest.TestCase):
     def test_iac_negotiation_stripped(self):
-        c = TelnetClient("127.0.0.1")           # сокет не открываем
+        c = TelnetClient("127.0.0.1")           # don't open the socket
         c._feed(bytes([ord("A"), ord("B"), IAC, WILL, ECHO, ord("C"), IAC, DO, ECHO, ord("D")]))
         self.assertEqual(c.take_buffer(), "ABCD")
 
@@ -112,8 +112,8 @@ class TelnetParsingTests(unittest.TestCase):
 
     def test_split_sequence_across_feeds(self):
         c = TelnetClient("127.0.0.1")
-        c._feed(bytes([ord("A"), IAC]))          # последовательность оборвана
-        c._feed(bytes([WILL, ECHO, ord("B")]))   # продолжение
+        c._feed(bytes([ord("A"), IAC]))          # sequence cut off
+        c._feed(bytes([WILL, ECHO, ord("B")]))   # continuation
         self.assertEqual(c.take_buffer(), "AB")
 
 
