@@ -104,6 +104,30 @@ Done: port 5 = VLAN 105; VLAN 105 tagged on uplink 25, 26
 
 This uses the same uplink VLAN as the guard, so `--uplink-vlan 0` disables it too.
 
+## Switch blacklist
+
+Switches with restricted access can be listed in a **blacklist file** — the
+script refuses them before even opening a connection:
+
+```
+$ python3 vlanswapper.py --host 192.0.2.10 --port 5
+⛔ Switch 192.0.2.10 is blacklisted (restricted access) — connection refused.
+```
+
+The file is looked up as `blacklist.txt` in the current directory, then
+`~/.config/vlanswapper/blacklist.txt`; `--blacklist PATH` points at a custom
+location. One entry per line — an IP, a hostname (case-insensitive), or a CIDR
+network; `#` starts a comment (see `blacklist.txt.example`):
+
+```
+192.0.2.10           # core switch — hands off
+core-sw1
+10.50.0.0/24         # the whole management subnet
+```
+
+A missing file blocks nothing. There is deliberately no bypass flag — edit the
+file itself to lift a restriction.
+
 ### Non-interactive mode (arguments)
 
 ```bash

@@ -46,6 +46,10 @@ sequences can split across TCP reads (there's a test for this).
 
 1. `settings.resolve` — merges connection params by precedence
    **CLI arg → env (`VLANSWAPPER_*`) → config.ini → interactive prompt**.
+   Right after it, the **blacklist check** (`blacklist.py`): if the host matches
+   an entry in `blacklist.txt` (cwd or `~/.config/vlanswapper/`, override with
+   `--blacklist`; exact IP/hostname or CIDR), `run` refuses with exit 1 before
+   any connection. No bypass flag by design.
 2. `telnet.TelnetClient` opens the socket; `session.Session` logs in
    (`login()` watches for user/password/prompt regexes, optionally does
    `enable`) and runs commands via `run()` / `run_expect()`, stripping the

@@ -1,0 +1,7 @@
+# Copy to blacklist.txt (or ~/.config/vlanswapper/blacklist.txt).
+# Switches listed here are refused before any connection is made.
+# One entry per line: IP address, hostname, or CIDR network. '#' starts a comment.
+
+192.0.2.10           # core switch — hands off
+core-sw1             # hostnames match case-insensitively
+10.50.0.0/24         # the whole management subnet

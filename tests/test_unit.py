@@ -1,8 +1,11 @@
 """Network-free unit tests: MAC formats and IAC parsing in TelnetClient."""
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from vlanswapper import mac
+from vlanswapper.blacklist import is_blacklisted, load_blacklist
 from vlanswapper.drivers.dlink import DlinkDriver
 from vlanswapper.drivers.eltex import EltexDriver
 from vlanswapper.drivers.huawei import HuaweiDriver
@@ -142,6 +145,38 @@ class UplinkGuardTests(unittest.TestCase):
         drv = self._drv(DlinkDriver, out)
         self.assertIn(253, drv.port_vlans(24))
         self.assertTrue(drv.is_uplink_port(24, 253))
+
+
+class BlacklistTests(unittest.TestCase):
+    def _file(self, content: str) -> Path:
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False)
+        self.addCleanup(Path(tmp.name).unlink)
+        tmp.write(content)
+        tmp.close()
+        return Path(tmp.name)
+
+    def test_load_skips_comments_and_blanks(self):
+        path = self._file("# restricted switches\n\n192.0.2.10\ncore-sw1  # do not touch\n")
+        self.assertEqual(load_blacklist(path), ["192.0.2.10", "core-sw1"])
+
+    def test_missing_file_blocks_nothing(self):
+        self.assertEqual(load_blacklist(Path("/nonexistent/blacklist.txt")), [])
+        self.assertFalse(is_blacklisted("192.0.2.10", []))
+
+    def test_exact_ip_and_hostname_match(self):
+        entries = ["192.0.2.10", "Core-SW1"]
+        self.assertTrue(is_blacklisted("192.0.2.10", entries))
+        self.assertTrue(is_blacklisted("core-sw1", entries))   # case-insensitive
+        self.assertFalse(is_blacklisted("192.0.2.11", entries))
+
+    def test_cidr_matches_ips_only(self):
+        entries = ["10.20.0.0/16"]
+        self.assertTrue(is_blacklisted("10.20.5.8", entries))
+        self.assertFalse(is_blacklisted("10.21.0.1", entries))
+        self.assertFalse(is_blacklisted("some-host", entries))  # hostname vs CIDR
+
+    def test_malformed_entry_is_ignored(self):
+        self.assertFalse(is_blacklisted("192.0.2.10", ["not/a/network"]))
 
 
 class TelnetParsingTests(unittest.TestCase):

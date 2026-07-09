@@ -1,6 +1,8 @@
 """Interactive-menu test against the mock switch (input/isatty are patched)."""
 
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from tests.mock_switch import MockSwitch
@@ -77,6 +79,28 @@ class MenuTests(unittest.TestCase):
         rc = _run_with_input(sw, ["1", "5", "y", "0"], extra=["--uplink-vlan", "0"])
         self.assertEqual(rc, 0)
         self.assertIn("switchport access vlan 105", "\n".join(sw.received))
+
+    def test_blacklisted_switch_refused(self):
+        # The host is in the blacklist: exit 1, and not a single command
+        # reaches the switch (no connection is even attempted).
+        sw = MockSwitch().start()
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False)
+        self.addCleanup(Path(tmp.name).unlink)
+        tmp.write("# restricted\n127.0.0.1\n")
+        tmp.close()
+        rc = _run_with_input(sw, [], extra=["--blacklist", tmp.name])
+        self.assertEqual(rc, 1)
+        self.assertEqual(sw.received, [])
+
+    def test_non_blacklisted_switch_allowed(self):
+        # A blacklist that doesn't mention the host must not interfere.
+        sw = MockSwitch().start()
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False)
+        self.addCleanup(Path(tmp.name).unlink)
+        tmp.write("192.0.2.99\n")
+        tmp.close()
+        rc = _run_with_input(sw, ["0"], extra=["--blacklist", tmp.name])
+        self.assertEqual(rc, 0)
 
     def test_menu_immediate_exit(self):
         sw = MockSwitch().start()

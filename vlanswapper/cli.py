@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from . import mac as macfmt
+from .blacklist import is_blacklisted, load_blacklist
 from .detect import build_driver, detect_vendor
 from .drivers import REGISTRY, UPLINK_VLAN, VLAN_BASE, DriverError
 from .menu import run_menu
@@ -45,6 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
                         f"(default {UPLINK_VLAN}; 0 disables the check)")
     p.add_argument("--force", action="store_true",
                    help="configure the port even if it looks like an uplink (removes the guard)")
+    p.add_argument("--blacklist", metavar="PATH",
+                   help="path to the switch blacklist file (default: blacklist.txt or "
+                        "~/.config/vlanswapper/blacklist.txt)")
     p.add_argument("--no-save", action="store_true", help="don't save the config after configuring")
     p.add_argument("--dry-run", action="store_true",
                    help="show the commands but don't send them to the device")
@@ -126,6 +131,13 @@ def run(argv=None) -> int:
     except ValueError as exc:
         print(f"Settings error: {exc}", file=sys.stderr)
         return 2
+
+    # Access restriction: refuse blacklisted switches before even connecting.
+    entries = load_blacklist(Path(args.blacklist) if args.blacklist else None)
+    if is_blacklisted(cfg.host, entries):
+        print(f"⛔ Switch {cfg.host} is blacklisted (restricted access) — connection refused.",
+              file=sys.stderr)
+        return 1
 
     client = TelnetClient(cfg.host, cfg.port, timeout=cfg.timeout)
     try:
