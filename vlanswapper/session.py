@@ -18,6 +18,20 @@ PASSWORD_RE = re.compile(r"pass\s*word\s*[:>]", re.IGNORECASE)
 PROMPT_RE = re.compile(r"[\r\n]?[\w.\-\[\]/@()<>]+[>#]\s*$")
 # "press something" lines seen before login.
 PRESS_ANY_RE = re.compile(r"press\s+(any\s+key|enter|return)", re.IGNORECASE)
+# Pager line shown when paged output can't be disabled: classic '--More--' and the
+# D-Link smart-switch variant 'CTRL+C ESC q Quit SPACE n Next Page ENTER Next Entry a All'.
+MORE_RE = re.compile(r"--\s*more\s*--|next\s+page", re.IGNORECASE)
+
+
+def _strip_pager(text: str, more: re.Pattern[str]) -> str:
+    """Drop the pager line and the backspaces the device erases it with.
+
+    The whole line goes, not just the matched marker: a real pager prints a full
+    legend ('CTRL+C ESC q Quit SPACE n Next Page ...') and leaving its tail in
+    the output would corrupt the listing being parsed.
+    """
+    lines = text.replace("\x08", "").splitlines()
+    return "\n".join(line for line in lines if not more.search(line))
 
 
 class LoginError(Exception):
@@ -86,6 +100,35 @@ class Session:
         expect = expect or [self.prompt_re]
         text, _ = self.c.read_until_re(expect, timeout=timeout)
         return self._clean(text, command)
+
+    def run_paged(self, command: str, more_re=MORE_RE, page_key: str = " ",
+                  timeout: float | None = None, max_pages: int = 500) -> str:
+        """Run a command whose output the device pages, and collect every page.
+
+        Some firmware ignores the "disable paging" command for certain views (the
+        D-Link 1100 series and its MAC/port listings). There the device stops on a
+        ``--More--`` style line and waits for a keypress instead of returning to the
+        prompt, so we answer with ``page_key`` until the prompt comes back. When no
+        pager appears this behaves exactly like :meth:`run`.
+        """
+        self.log(f"$ {command}")
+        if self.dry_run:
+            return ""
+        more = more_re if hasattr(more_re, "search") else re.compile(more_re, re.IGNORECASE)
+        self.c.take_buffer()
+        self.c.write_line(command)
+        pages: list[str] = []
+        for _ in range(max_pages):
+            text, idx = self.c.read_until_re([more, self.prompt_re], timeout=timeout)
+            self.c.take_buffer()
+            if idx == 1:                       # prompt: last page, output complete
+                pages.append(text)
+                break
+            pages.append(_strip_pager(text, more))
+            self.c.write(page_key)             # bare key, no newline — that's what the pager wants
+        else:
+            raise TelnetError(f"pager did not finish after {max_pages} pages: {command!r}")
+        return self._clean("".join(pages), command)
 
     def run_expect(self, command: str, expect, timeout: float | None = None) -> tuple[str, int]:
         """Like :meth:`run`, but also return the index of the matched pattern.

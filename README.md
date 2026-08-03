@@ -19,6 +19,13 @@ dlink_des1210`) — a Smart Managed series with a stripped-down CLI; autodetect
 picks it over the generic D-Link based on the `DES-1210` marker in the banner.
 The Telnet CLI is available only on firmware revisions C1/F and newer.
 
+The **D-Link 1100 series** (DES-1100 / DGS-1100, e.g. the DGS-1100-10) has its
+own driver (`--vendor dlink_1100`). Its CLI matches the DES-1210's, but the
+firmware keeps **paging enabled** for the MAC-table and port-list views: they
+stop on a `CTRL+C ESC q Quit SPACE n Next Page ...` line and wait for a keypress.
+The driver reads those views page by page automatically, so nothing hangs and
+the pager lines don't end up in the output.
+
 > The CLI syntax depends heavily on the series and firmware version. The command
 > templates are best-effort; spots that vary are marked `# TODO` in the drivers
 > (`vlanswapper/drivers/*.py`). Before production use, verify against your model

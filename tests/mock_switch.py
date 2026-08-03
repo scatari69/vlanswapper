@@ -14,10 +14,17 @@ IAC, WILL, DO, ECHO, SGA = 255, 251, 253, 1, 3
 
 
 class MockSwitch:
+    #: pager line D-Link smart switches stop on when paging can't be disabled
+    PAGER = b"CTRL+C ESC q Quit SPACE n Next Page ENTER Next Entry a All"
+
     def __init__(self, mac_port: dict[str, int] | None = None,
-                 uplink_ports: set[int] | None = None):
+                 uplink_ports: set[int] | None = None,
+                 page_size: int | None = None):
         self.mac_port = mac_port or {"aabb.ccdd.eeff": 7}
         self.uplink_ports = uplink_ports or set()  # ports trunking VLAN 253
+        # When set, replies longer than this many lines are sent page by page,
+        # each page followed by PAGER and a wait for a single keypress byte.
+        self.page_size = page_size
         self.received: list[str] = []       # every command received (for assertions)
         self._srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -70,7 +77,23 @@ class MockSwitch:
                 continue
             self.received.append(line)
             reply, prompt = self._reply(line, prompt)
+            if self.page_size and reply.count(b"\r\n") + 1 > self.page_size:
+                self._send_paged(conn, reply, prompt)
+                continue
             conn.sendall(b"\r\n" + reply + b"\r\n" + prompt)
+
+    def _send_paged(self, conn: socket.socket, reply: bytes, prompt: bytes) -> None:
+        """Send a long reply page by page, waiting for a keypress between pages."""
+        lines = reply.split(b"\r\n")
+        conn.sendall(b"\r\n")
+        for i in range(0, len(lines), self.page_size):
+            conn.sendall(b"\r\n".join(lines[i:i + self.page_size]))
+            if i + self.page_size < len(lines):
+                conn.sendall(b"\r\n" + self.PAGER)
+                conn.recv(1)          # the page key arrives as a bare byte, no newline
+                conn.sendall(b"\r\n")
+            else:
+                conn.sendall(b"\r\n" + prompt)
 
     @staticmethod
     def _alive(conn: socket.socket) -> bool:

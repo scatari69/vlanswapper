@@ -115,7 +115,7 @@ class BaseDriver:
         """
         if not self.mac_table_cmd:
             raise DriverError("viewing the MAC table is not supported for this vendor")
-        return self._run(self.mac_table_cmd)
+        return self._run_view(self.mac_table_cmd)
 
     def parse_port_status(self, output: str) -> list[tuple[int, str]]:
         """Parse :attr:`port_status_cmd` output into a list of ``(port, status)``.
@@ -147,7 +147,7 @@ class BaseDriver:
         if not self.port_status_cmd:
             raise DriverError("listing ports is not supported for this vendor")
         best: dict[int, str] = {}
-        for port, status in self.parse_port_status(self._run(self.port_status_cmd)):
+        for port, status in self.parse_port_status(self._run_view(self.port_status_cmd)):
             rank = _STATUS_RANK.get(status, _STATUS_RANK["unknown"])
             if port not in best or rank < _STATUS_RANK.get(best[port], 3):
                 best[port] = status
@@ -248,6 +248,15 @@ class BaseDriver:
     # -- helpers for subclasses --------------------------------------------
     def _run(self, command: str, **kw) -> str:
         return self.s.run(command, **kw)
+
+    def _run_view(self, command: str) -> str:
+        """Run a read-only listing command (MAC table, port list, VLAN dump).
+
+        Separate from :meth:`_run` so drivers whose firmware keeps paging enabled
+        for these views despite :meth:`disable_paging` can override one place and
+        answer the pager instead of timing out.
+        """
+        return self._run(command)
 
     def _run_confirm(self, command: str, yes: str = "Y", confirm_re: str = r"\[?(y/n|yes/no)\]?",
                      timeout: float | None = None) -> str:

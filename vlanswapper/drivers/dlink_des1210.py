@@ -47,7 +47,7 @@ class DlinkDes1210Driver(DlinkDriver):
         VLAN with a line like ``Current Untagged ports : 1-28``. We parse those
         blocks and look for VLANs whose untagged list contains the port number.
         """
-        out = self._run("show vlan")
+        out = self._run_view("show vlan")
         vids: list[int] = []
         cur_vid: int | None = None
         for line in out.splitlines():
@@ -68,7 +68,7 @@ class DlinkDes1210Driver(DlinkDriver):
         # is printed on the 'Member Ports' line; 'Untagged Ports' is a subset of
         # it, and 'Forbidden Ports' is NOT membership and is ignored. This also
         # catches a trunked uplink (a port in 'Member Ports' with empty 'Untagged').
-        out = self._run("show vlan")
+        out = self._run_view("show vlan")
         if not out.strip():
             return None
         vlans: set[int] = set()
@@ -87,7 +87,7 @@ class DlinkDes1210Driver(DlinkDriver):
     def find_uplink_ports(self, uplink_vlan: int) -> list[int]:
         # One 'show vlan' parse instead of the generic per-port enumeration:
         # return the member ports of the uplink VID (both tagged and untagged).
-        out = self._run("show vlan")
+        out = self._run_view("show vlan")
         if not out.strip():
             return []
         ports: set[int] = set()
