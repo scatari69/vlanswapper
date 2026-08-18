@@ -26,6 +26,12 @@ stop on a `CTRL+C ESC q Quit SPACE n Next Page ...` line and wait for a keypress
 The driver reads those views page by page automatically, so nothing hangs and
 the pager lines don't end up in the output.
 
+The Metro Ethernet **/ME** models (DGS-1100-06/ME, -10/ME, ...) are a separate
+firmware line and get their own driver (`--vendor dlink_1100_me`), so they are no
+longer silently handled as plain DGS-1100 switches. It currently inherits the
+1100 command set as its starting point — **the /ME templates are not verified on
+hardware yet**, so check yours with `--dry-run --vendor dlink_1100_me`.
+
 > The CLI syntax depends heavily on the series and firmware version. The command
 > templates are best-effort; spots that vary are marked `# TODO` in the drivers
 > (`vlanswapper/drivers/*.py`). Before production use, verify against your model

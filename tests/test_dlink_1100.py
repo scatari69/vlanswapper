@@ -12,6 +12,7 @@ from tests.mock_switch import MockSwitch
 from vlanswapper.detect import detect_vendor
 from vlanswapper.drivers import get_driver
 from vlanswapper.drivers.dlink_1100 import Dlink1100Driver
+from vlanswapper.drivers.dlink_1100_me import Dlink1100MeDriver
 from vlanswapper.session import Session
 from vlanswapper.telnet import TelnetClient
 
@@ -140,6 +141,36 @@ class PagerProtocolTests(unittest.TestCase):
             client.close()
         self.assertIn("aabb.ccdd.eeff", out)
         self.assertIn("gi1/0/7", out)
+
+
+class MeVariantTests(unittest.TestCase):
+    """The /ME line must not be swallowed by the plain 'dgs-1100' marker."""
+
+    def test_me_models_get_their_own_driver(self):
+        for banner in ("Device Type : DGS-1100-10/ME Gigabit Ethernet Switch",
+                       "Device Type : DGS-1100-06/ME",
+                       "Device Type : DGS-1100-26/ME"):
+            with self.subTest(banner=banner):
+                sess = PagingSession({"show switch": banner})
+                self.assertEqual(detect_vendor(sess), "dlink_1100_me")
+
+    def test_plain_1100_still_uses_the_non_me_driver(self):
+        # The /ME markers must not steal detection from the standard models.
+        for banner in ("Device Type : DGS-1100-10 D-Link Smart Switch",
+                       "Device Type : DES-1100-16 D-Link"):
+            with self.subTest(banner=banner):
+                sess = PagingSession({"show switch": banner})
+                self.assertEqual(detect_vendor(sess), "dlink_1100")
+
+    def test_registry_has_model(self):
+        self.assertIs(get_driver("dlink_1100_me"), Dlink1100MeDriver)
+
+    def test_inherits_paged_views(self):
+        # Until the /ME command set is verified it starts from the 1100 behavior,
+        # including reading the listings through the pager.
+        sess = PagingSession({"show ports": " 1  Enabled/Auto  Auto  Link Down  Enabled"})
+        Dlink1100MeDriver(sess).list_port_status()
+        self.assertEqual(sess.paged, ["show ports"])
 
 
 if __name__ == "__main__":
