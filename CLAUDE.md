@@ -9,10 +9,9 @@ the rule `vlan_id = 100 + port_number` (an ISP per-port-VLAN scheme). The port i
 given by number or resolved from a client MAC. The switch vendor is
 auto-detected on connect. Supported vendors: D-Link, Eltex, Huawei, BDCOM, Zyxel.
 Model-specific drivers subclass the generic one (e.g. `dlink_des1210` extends
-`dlink`, and both `dlink_1100` and `dlink_1100_me` extend `dlink_des1210` — the
-/ME line shares the 1210 CLI but *not* the plain 1100's pager workaround, so it
-deliberately does not sit under `dlink_1100`); `detect._match` picks the driver
-with the **longest** matching
+`dlink`, `dlink_1100` extends `dlink_des1210` adding the pager workaround, and
+`dlink_1100_me` extends `dlink_1100` — the /ME shares both the 1210 CLI *and*
+that paging quirk); `detect._match` picks the driver with the **longest** matching
 marker, so `des-1210`/`dgs-1100` win over the generic `des-`/`dgs-`, and the
 `/ME` markers (`1100-10/me`, ...) must stay longer than `dgs-1100` to win in
 turn — that ordering is what keeps the Metro Ethernet line off the plain-1100
