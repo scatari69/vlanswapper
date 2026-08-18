@@ -165,12 +165,35 @@ class MeVariantTests(unittest.TestCase):
     def test_registry_has_model(self):
         self.assertIs(get_driver("dlink_1100_me"), Dlink1100MeDriver)
 
-    def test_inherits_paged_views(self):
-        # Until the /ME command set is verified it starts from the 1100 behavior,
-        # including reading the listings through the pager.
+    def test_reads_plainly_like_the_1210_not_the_1100(self):
+        # The /ME CLI is the 1210's: it does not carry the 1100's pager quirk,
+        # so the listing views use the plain read path.
         sess = PagingSession({"show ports": " 1  Enabled/Auto  Auto  Link Down  Enabled"})
-        Dlink1100MeDriver(sess).list_port_status()
-        self.assertEqual(sess.paged, ["show ports"])
+        drv = Dlink1100MeDriver(sess)
+        self.assertEqual(drv.list_port_status(), [(1, "down")])
+        self.assertEqual(sess.paged, [])
+        self.assertIn("show ports", sess.sent)
+
+    def test_uses_the_1210_vlan_command_set(self):
+        show_vlan = (
+            "VID                : 1         VLAN NAME      : default\n"
+            "Member Ports       : 1-10\n"
+            "Untagged Ports     : 1-10\n"
+            "\n"
+            "VID                : 253       VLAN NAME      : mgmt\n"
+            "Member Ports       : 9-10\n"
+            "Untagged Ports     : \n"
+        )
+        sess = PagingSession({"show vlan": show_vlan})
+        drv = Dlink1100MeDriver(sess)
+        # Uplink detection reads 'Member Ports' from the block-style dump...
+        self.assertEqual(drv.find_uplink_ports(253), [9, 10])
+        drv.set_access_vlan(5, 105)
+        # ...and the port move uses the 1210 syntax, not the DES-3200 gvrp one.
+        self.assertIn("config vlan vlanid 1 delete 5", sess.sent)
+        self.assertIn("config vlan vlanid 105 add untagged 5", sess.sent)
+        self.assertIn("config port_vlan 5 pvid 105", sess.sent)
+        self.assertFalse(any("gvrp" in c for c in sess.sent))
 
 
 if __name__ == "__main__":

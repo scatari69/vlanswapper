@@ -28,9 +28,9 @@ the pager lines don't end up in the output.
 
 The Metro Ethernet **/ME** models (DGS-1100-06/ME, -10/ME, ...) are a separate
 firmware line and get their own driver (`--vendor dlink_1100_me`), so they are no
-longer silently handled as plain DGS-1100 switches. It currently inherits the
-1100 command set as its starting point — **the /ME templates are not verified on
-hardware yet**, so check yours with `--dry-run --vendor dlink_1100_me`.
+longer silently handled as plain DGS-1100 switches. Their CLI is the DES-1210's,
+so that's what the driver uses — including reading the listing views normally,
+since the /ME line doesn't have the plain 1100's paging quirk.
 
 > The CLI syntax depends heavily on the series and firmware version. The command
 > templates are best-effort; spots that vary are marked `# TODO` in the drivers
