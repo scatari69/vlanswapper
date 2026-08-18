@@ -114,7 +114,11 @@ listing goes through `BaseDriver._run_view` rather than `_run` — that's the on
 hook to override when a firmware keeps **paging on** for these views despite
 `disable_paging` (`dlink_1100` routes it to `Session.run_paged`, which answers
 the `--More--`/`Next Page` legend with a space until the prompt returns and
-strips the pager lines; with no pager it behaves exactly like `run`). The
+strips the pager lines; with no pager it behaves exactly like `run`). Beware the
+second pager species: D-Link's `show ports` is a **live screen** (`p Previous
+Page r Refresh`) that redraws instead of ending, so `run_paged` stops once a
+page repeats and leaves it with `quit_key` (`q`) — without that it spins until
+`max_pages` and, worse, strands the device in the pager. The
 base `parse_port_status` handles Cisco-like `show interfaces status`; override
 it when the format differs (D-Link `show ports`, Huawei `display interface
 brief` — both do).

@@ -23,6 +23,11 @@ PRESS_ANY_RE = re.compile(r"press\s+(any\s+key|enter|return)", re.IGNORECASE)
 MORE_RE = re.compile(r"--\s*more\s*--|next\s+page", re.IGNORECASE)
 
 
+def _page_fingerprint(page: str) -> str:
+    """Whitespace-insensitive identity of a page, for spotting a redraw."""
+    return "\n".join(line.strip() for line in page.splitlines() if line.strip())
+
+
 def _strip_pager(text: str, more: re.Pattern[str]) -> str:
     """Drop the pager line and the backspaces the device erases it with.
 
@@ -102,7 +107,8 @@ class Session:
         return self._clean(text, command)
 
     def run_paged(self, command: str, more_re=MORE_RE, page_key: str = " ",
-                  timeout: float | None = None, max_pages: int = 500) -> str:
+                  quit_key: str = "q", timeout: float | None = None,
+                  max_pages: int = 500) -> str:
         """Run a command whose output the device pages, and collect every page.
 
         Some firmware ignores the "disable paging" command for certain views (the
@@ -110,6 +116,15 @@ class Session:
         ``--More--`` style line and waits for a keypress instead of returning to the
         prompt, so we answer with ``page_key`` until the prompt comes back. When no
         pager appears this behaves exactly like :meth:`run`.
+
+        Two kinds of pager exist and both end here. A plain listing pager runs out
+        of pages and hands the prompt back. An *interactive screen* — D-Link's
+        ``show ports``, whose legend advertises ``p Previous Page r Refresh`` —
+        never does: once everything fits, ``page_key`` merely redraws it, so it
+        would loop forever. We therefore stop as soon as a page repeats one we
+        have already collected (a redraw or a wrap-around) and leave the pager
+        with ``quit_key``, which is also what restores the prompt for whatever
+        command runs next.
         """
         self.log(f"$ {command}")
         if self.dry_run:
@@ -118,17 +133,39 @@ class Session:
         self.c.take_buffer()
         self.c.write_line(command)
         pages: list[str] = []
+        seen: set[str] = set()
         for _ in range(max_pages):
             text, idx = self.c.read_until_re([more, self.prompt_re], timeout=timeout)
             self.c.take_buffer()
             if idx == 1:                       # prompt: last page, output complete
                 pages.append(text)
                 break
-            pages.append(_strip_pager(text, more))
+            page = _strip_pager(text, more)
+            fingerprint = _page_fingerprint(page)
+            if fingerprint in seen:            # redrawing, not advancing
+                self._leave_pager(quit_key, timeout)
+                break
+            seen.add(fingerprint)
+            pages.append(page)
             self.c.write(page_key)             # bare key, no newline — that's what the pager wants
         else:
+            self._leave_pager(quit_key, timeout)
             raise TelnetError(f"pager did not finish after {max_pages} pages: {command!r}")
         return self._clean("".join(pages), command)
+
+    def _leave_pager(self, quit_key: str, timeout: float | None = None) -> None:
+        """Quit an interactive pager so the device is back at its prompt.
+
+        Best effort: if the device doesn't answer, the caller still keeps the
+        output it collected, and the next command's read starts from a cleared
+        buffer either way.
+        """
+        try:
+            self.c.write(quit_key)
+            self.c.read_until_re([self.prompt_re], timeout=timeout)
+        except TelnetError as exc:
+            self.log(f"[pager] no prompt after quit key: {exc}")
+        self.c.take_buffer()
 
     def run_expect(self, command: str, expect, timeout: float | None = None) -> tuple[str, int]:
         """Like :meth:`run`, but also return the index of the matched pattern.

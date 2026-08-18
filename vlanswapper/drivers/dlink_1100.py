@@ -31,6 +31,9 @@ class Dlink1100Driver(DlinkDes1210Driver):
     more_re = MORE_RE
     #: key sent to advance one page (space = next page on D-Link smart switches).
     page_key = " "
+    #: key that leaves an interactive pager ('show ports' refreshes in place and
+    #: never returns to the prompt on its own).
+    quit_key = "q"
 
     def disable_paging(self) -> None:
         # Try anyway — on some revisions it trims the shorter outputs — but never
@@ -40,4 +43,5 @@ class Dlink1100Driver(DlinkDes1210Driver):
             self.s.log("[1100] disable clipaging not supported — reading views page by page")
 
     def _run_view(self, command: str) -> str:
-        return self.s.run_paged(command, self.more_re, page_key=self.page_key)
+        return self.s.run_paged(command, self.more_re, page_key=self.page_key,
+                                quit_key=self.quit_key)

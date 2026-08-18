@@ -262,5 +262,54 @@ class MeHardwareFormatTests(unittest.TestCase):
                                  (5, "up"), (6, "down"), (7, "up"), (8, "down")])
 
 
+class RefreshingPagerTests(unittest.TestCase):
+    """'show ports' is a live screen: it redraws instead of ever ending."""
+
+    class RefreshingSwitch(MockSwitch):
+        PAGER = b"CTRL+C ESC q Quit SPACE n Next Page p Previous Page r Refresh"
+
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.keys: list[bytes] = []       # every pager keypress received
+
+        def _send_paged(self, conn, reply, prompt):
+            # Everything fits one screen; any key but 'q' just redraws it.
+            conn.sendall(b"\r\n" + reply + b"\r\n" + self.PAGER)
+            while True:
+                key = conn.recv(1)
+                if not key:
+                    return
+                self.keys.append(key)
+                if key in (b"q", b"Q", b"\x1b", b"\x03"):
+                    conn.sendall(b"\r\n" + prompt)
+                    return
+                conn.sendall(b"\r\n" + reply + b"\r\n" + self.PAGER)
+
+        def _reply(self, line, prompt):
+            if line.lower().startswith("show ports"):
+                return ME_SHOW_PORTS.encode(), prompt
+            return super()._reply(line, prompt)
+
+    def test_redrawing_screen_is_left_with_the_quit_key(self):
+        sw = self.RefreshingSwitch(page_size=1).start()   # force the paged path
+        client = TelnetClient("127.0.0.1", sw.port, timeout=3.0)
+        client.open()
+        try:
+            session = Session(client)
+            session.login("admin", "secret")
+            driver = get_driver("dlink_1100_me")(session)
+            ports = driver.list_port_status()
+            # The pager was quit, so the prompt is back and the session usable.
+            follow_up = session.run("show mac address-table")
+        finally:
+            client.close()
+
+        self.assertEqual(ports, [(1, "up"), (2, "down"), (3, "up"), (4, "down"),
+                                 (5, "up"), (6, "down"), (7, "up"), (8, "down")])
+        self.assertIn(b"q", sw.keys)                 # we actually left the pager
+        self.assertLess(len(sw.keys), 5, "should stop as soon as the screen repeats")
+        self.assertIn("aabb.ccdd.eeff", follow_up)   # session not stranded
+
+
 if __name__ == "__main__":
     unittest.main()
