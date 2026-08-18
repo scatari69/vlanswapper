@@ -165,14 +165,35 @@ class MeVariantTests(unittest.TestCase):
     def test_registry_has_model(self):
         self.assertIs(get_driver("dlink_1100_me"), Dlink1100MeDriver)
 
-    def test_reads_plainly_like_the_1210_not_the_1100(self):
-        # The /ME CLI is the 1210's: it does not carry the 1100's pager quirk,
-        # so the listing views use the plain read path.
-        sess = PagingSession({"show ports": " 1  Enabled/Auto  Auto  Link Down  Enabled"})
+    # Real 'show ports' output from a DGS-1100-10/ME: each port wraps onto a
+    # second line (the MDI setting continues underneath), and the listing pages.
+    SHOW_PORTS = (
+        " Port  State/          Settings              Connection          Address\n"
+        "       MDI       Speed/Duplex/FlowCtrl   Speed/Duplex/FlowCtrl   Learning\n"
+        " ----- --------  ---------------------   ---------------------   --------\n"
+        " 1     Enabled   Auto/Disabled           100M/Full/Disabled      Enabled\n"
+        "       Auto\n"
+        " 2     Enabled   Auto/Disabled           Link Down               Enabled\n"
+        "       Auto\n"
+        " 3     Enabled   Auto/Disabled           100M/Full/Disabled      Enabled\n"
+        "       Auto\n"
+    )
+
+    def test_listing_views_are_paged_like_the_1100(self):
+        # Confirmed on hardware: 'disable clipaging' succeeds but ports/VLANs
+        # still page, so these views must not use the plain read path.
+        sess = PagingSession({"show ports": self.SHOW_PORTS,
+                              "show vlan": "VID : 253\nMember Ports : 9-10\n"})
         drv = Dlink1100MeDriver(sess)
-        self.assertEqual(drv.list_port_status(), [(1, "down")])
-        self.assertEqual(sess.paged, [])
-        self.assertIn("show ports", sess.sent)
+        drv.list_port_status()
+        drv.find_uplink_ports(253)
+        self.assertEqual(sess.paged, ["show ports", "show vlan"])
+
+    def test_parses_the_real_two_line_port_table(self):
+        sess = PagingSession({"show ports": self.SHOW_PORTS})
+        # The 'Auto' continuation lines carry no port number and are skipped.
+        self.assertEqual(Dlink1100MeDriver(sess).list_port_status(),
+                         [(1, "up"), (2, "down"), (3, "up")])
 
     def test_uses_the_1210_vlan_command_set(self):
         show_vlan = (
@@ -194,6 +215,51 @@ class MeVariantTests(unittest.TestCase):
         self.assertIn("config vlan vlanid 105 add untagged 5", sess.sent)
         self.assertIn("config port_vlan 5 pvid 105", sess.sent)
         self.assertFalse(any("gvrp" in c for c in sess.sent))
+
+
+# Verbatim 'show ports' output from a DGS-1100-10/ME (8 ports, alternating link
+# state), including the two-line-per-port wrap and the trailing blank filler.
+ME_SHOW_PORTS = "\r\n".join([
+    " Port  State/          Settings              Connection          Address",
+    "       MDI       Speed/Duplex/FlowCtrl   Speed/Duplex/FlowCtrl   Learning",
+    " ----- --------  ---------------------   ---------------------   --------",
+] + [
+    line
+    for port in range(1, 9)
+    for line in (
+        f" {port}     Enabled   Auto/Disabled           "
+        + ("100M/Full/Disabled      Enabled" if port % 2 else "Link Down               Enabled"),
+        "       Auto",
+    )
+] + ["", ""])
+
+
+class MeHardwareFormatTests(unittest.TestCase):
+    """The whole chain on real /ME data: pager → collected text → port list."""
+
+    class MeSwitch(MockSwitch):
+        # The legend this firmware actually prints (note: no 'Next Entry' here).
+        PAGER = b"CTRL+C ESC q Quit SPACE n Next Page p Previous Page r Refresh"
+
+        def _reply(self, line, prompt):
+            if line.lower().startswith("show ports"):
+                return ME_SHOW_PORTS.encode(), prompt
+            return super()._reply(line, prompt)
+
+    def test_port_list_survives_the_real_pager(self):
+        sw = self.MeSwitch(page_size=6).start()      # forces several pages
+        client = TelnetClient("127.0.0.1", sw.port, timeout=3.0)
+        client.open()
+        try:
+            session = Session(client)
+            session.login("admin", "secret")
+            driver = get_driver("dlink_1100_me")(session)
+            ports = driver.list_port_status()
+        finally:
+            client.close()
+
+        self.assertEqual(ports, [(1, "up"), (2, "down"), (3, "up"), (4, "down"),
+                                 (5, "up"), (6, "down"), (7, "up"), (8, "down")])
 
 
 if __name__ == "__main__":

@@ -26,11 +26,12 @@ stop on a `CTRL+C ESC q Quit SPACE n Next Page ...` line and wait for a keypress
 The driver reads those views page by page automatically, so nothing hangs and
 the pager lines don't end up in the output.
 
-The Metro Ethernet **/ME** models (DGS-1100-06/ME, -10/ME, ...) are a separate
-firmware line and get their own driver (`--vendor dlink_1100_me`), so they are no
-longer silently handled as plain DGS-1100 switches. Their CLI is the DES-1210's,
-so that's what the driver uses — including reading the listing views normally,
-since the /ME line doesn't have the plain 1100's paging quirk.
+The Metro Ethernet **/ME** models (DGS-1100-06/ME, -10/ME, ...) get their own
+driver (`--vendor dlink_1100_me`) so they aren't silently handled as plain
+DGS-1100 switches. Their CLI is the DES-1210's and they page the same way, which
+is confirmed on a DGS-1100-10/ME: `disable clipaging` succeeds, yet `show ports`
+and `show vlan` still come back page by page (`show fdb` doesn't). The driver
+reads every listing through the pager, so that mix needs no configuration.
 
 > The CLI syntax depends heavily on the series and firmware version. The command
 > templates are best-effort; spots that vary are marked `# TODO` in the drivers

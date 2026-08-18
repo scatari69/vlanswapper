@@ -23,7 +23,11 @@ def detect_vendor(session: Session, prompt: str = "") -> str:
     haystack = prompt.lower()
     for cmd in PROBE_COMMANDS:
         try:
-            out = session.run(cmd, timeout=session.c.timeout)
+            # Paged read: on some firmware an *unsupported* probe prints a long
+            # help listing that pages (seen on the DGS-1100/ME). A plain read
+            # would burn the whole timeout and, worse, leave the device sitting
+            # in the pager so every later command is typed into it instead.
+            out = session.run_paged(cmd, timeout=session.c.timeout)
         except Exception as exc:  # timeout/error on an unsupported command — skip
             session.log(f"[detect] '{cmd}' failed: {exc}")
             continue

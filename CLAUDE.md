@@ -63,7 +63,10 @@ sequences can split across TCP reads (there's a test for this).
 3. `detect.detect_vendor` runs neutral probe commands (`show version`,
    `display version`, `show switch`) and matches each driver's
    `detect_markers` against the output → picks a driver from
-   `drivers.REGISTRY`.
+   `drivers.REGISTRY`. Probes go through `Session.run_paged`: an *unsupported*
+   probe can print a long help listing that pages (DGS-1100/ME), and a plain
+   read would burn the timeout **and** leave the device sitting in the pager,
+   desynchronizing every later command.
 4. Port resolution splits two ways:
    - explicit `--port`/`--mac` → one-shot via `_resolve_port_from_args` then
      `_apply` (returns exit code).

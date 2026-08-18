@@ -29,6 +29,10 @@ class FakeSession:
         self.sent.append(command)
         return self._lookup(command)
 
+    def run_paged(self, command, more_re=None, page_key=" ", **kw):
+        self.sent.append(command)
+        return self._lookup(command)
+
     def run_expect(self, command, expect, **kw):
         self.sent.append(command)
         return self._lookup(command), 1  # 1 = prompt immediately, no confirmation

@@ -1,30 +1,31 @@
 """D-Link 1100 **/ME** driver (Metro Ethernet line: DGS-1100-06/ME, -10/ME, ...).
 
-The /ME models are a separate firmware line from the plain DGS-1100 smart
-switches, and their CLI is the **DES-1210's**, so this driver extends
-:class:`DlinkDes1210Driver` directly: block-style ``show vlan`` (membership read
-from ``Member Ports``), ``config vlan vlanid ... add untagged`` /
-``add tagged``, and ``config port_vlan <port> pvid <vid>``.
+The CLI is the DES-1210's, and the listing views page exactly like the plain
+1100's, so this extends :class:`Dlink1100Driver` (= 1210 command set + the
+pager-aware read path).
 
-Deliberately **not** built on :class:`Dlink1100Driver`: the only thing that one
-adds is the pager workaround for firmware that keeps paging on for ``show fdb``
-and ``show ports``, and the /ME line doesn't share that quirk. If a particular
-/ME firmware turns out to page after all, the fix is one method here::
+Confirmed on a DGS-1100-10/ME: ``disable clipaging`` **exists and succeeds, yet
+``show ports`` and ``show vlan`` still come back page by page**, stopping on::
 
-    def _run_view(self, command: str) -> str:
-        return self.s.run_paged(command)
+    CTRL+C ESC q Quit SPACE n Next Page p Previous Page r Refresh
 
-The driver exists as its own class mainly so the model is detected and reported
-as itself instead of silently falling into the generic ``dgs-1100`` driver, and
-so any further /ME-specific difference has one obvious place to live.
+Reading those with the plain "wait for the prompt" path times out and leaves the
+device sitting in the pager, which desynchronizes everything sent afterwards.
+``show fdb`` is the exception — the MAC table arrives as one listing — but it
+goes through the same paged path, which is harmless: with no pager line
+``run_paged`` behaves exactly like ``run``.
+
+The port table on this firmware wraps each port across two lines (the MDI
+setting continues underneath); the inherited D-Link ``parse_port_status`` keys
+off the leading port number, so the continuation lines are simply skipped.
 """
 
 from __future__ import annotations
 
-from .dlink_des1210 import DlinkDes1210Driver
+from .dlink_1100 import Dlink1100Driver
 
 
-class Dlink1100MeDriver(DlinkDes1210Driver):
+class Dlink1100MeDriver(Dlink1100Driver):
     name = "dlink_1100_me"
     # Each marker must be longer than the plain 'dgs-1100' (8 chars) of the
     # non-ME driver, because detect._match resolves ties by longest marker.
