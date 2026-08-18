@@ -18,6 +18,12 @@ marker, so `des-1210`/`dgs-1100` win over the generic `des-`/`dgs-`, and the
 turn — that ordering is what keeps the Metro Ethernet line off the plain-1100
 driver.
 
+## Workflow
+
+Work on the feature branch, then **merge into `main` and push without asking** —
+the maintainer has given standing approval for that. Keep the full test suite
+green before merging.
+
 ## Commands
 
 ```bash
