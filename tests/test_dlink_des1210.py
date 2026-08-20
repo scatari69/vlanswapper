@@ -284,6 +284,45 @@ class RealVlanDumpTests(unittest.TestCase):
             self._drv(fused)._current_untagged_vlans(11)
 
 
+class PartialBlockTests(unittest.TestCase):
+    """A seam that eats one port list must not block answers that don't need it."""
+
+    def _dump_without(self, vid, label):
+        keep, out = True, []
+        for line in real_show_vlan().splitlines():
+            if line.startswith(f"VID                : {vid:<9}"):
+                keep = False
+            elif line.startswith("VID"):
+                keep = True
+            if not keep and line.startswith(label):
+                continue
+            out.append(line)
+        return "\n".join(out)
+
+    def test_missing_member_line_does_not_block_the_move(self):
+        # Seen on 172.17.2.112: VLAN 104 lost its 'Member Ports' line. That says
+        # nothing about untagged membership, so the port move must still work.
+        dump = self._dump_without(104, "Member Ports")
+        drv = DlinkDes1210Driver(FakeSession({"show vlan": dump}))
+        self.assertEqual(drv._current_untagged_vlans(11), [315])
+        # The uplink's own block is intact, so tagging still knows where to go.
+        self.assertEqual(drv.find_uplink_ports(253), [28])
+        # port_vlans reads both lists, so it honestly reports "don't know".
+        self.assertIsNone(drv.port_vlans(11))
+
+    def test_missing_untagged_line_is_still_refused(self):
+        # Here the missing line *could* have held the port — refuse to guess.
+        dump = self._dump_without(315, "Untagged Ports")
+        drv = DlinkDes1210Driver(FakeSession({"show vlan": dump}))
+        with self.assertRaises(DriverError):
+            drv._current_untagged_vlans(11)
+
+    def test_incomplete_uplink_block_tags_nothing(self):
+        dump = self._dump_without(253, "Member Ports")
+        drv = DlinkDes1210Driver(FakeSession({"show vlan": dump}))
+        self.assertEqual(drv.find_uplink_ports(253), [])
+
+
 class SeamDamageTests(unittest.TestCase):
     """A page seam like the one seen on 172.17.2.112 must not lose a VLAN."""
 

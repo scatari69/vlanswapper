@@ -69,21 +69,44 @@ class DlinkDes1210Driver(DlinkDriver):
             cur[key] = parse_int_ranges(m.group(3))
         if not blocks:
             return None, f"no VLAN blocks in {len(text.splitlines())} lines of output"
-        for b in blocks:
-            for key in ("member", "untagged"):
-                if key not in b:
-                    return None, (f"VLAN {b['vid']} has no '{key} ports' line — the "
-                                  f"listing stops there ({len(blocks)} blocks read)")
         return blocks, ""
+
+    @staticmethod
+    def _require(blocks: list[dict], keys: tuple[str, ...],
+                 only_vid: int | None = None) -> str:
+        """Check that the blocks carry the port lists an answer depends on.
+
+        Demanding every line of every block is too strict: a page seam can eat a
+        single ``Member Ports`` line, which says nothing about *untagged*
+        membership and must not stop a port being moved. So each caller asks only
+        for the lists it actually reads, and only for the VLANs it reads them from.
+        """
+        for b in blocks:
+            if only_vid is not None and b["vid"] != only_vid:
+                continue
+            for key in keys:
+                if key not in b:
+                    return (f"VLAN {b['vid']} has no '{key} ports' line — the "
+                            f"listing is missing it ({len(blocks)} blocks read)")
+        return ""
 
     def _read_vlan_blocks(self) -> tuple[list[dict] | None, str]:
         out = self._run_view("show vlan")
         blocks, reason = self._vlan_blocks(out)
         if blocks is None:
-            # Only visible with -v: long, but it is what pins down where the
-            # pager truncated the listing.
-            self.s.log(f"[{self.name}] unusable 'show vlan' ({reason}); raw output:\n{out}")
+            self._log_raw(reason, out)
         return blocks, reason
+
+    def _log_raw(self, reason: str, out: str) -> None:
+        """Dump the listing escaped, so a paste keeps the invisible characters.
+
+        Page-seam damage is usually control bytes or stray breaks — exactly what
+        a terminal hides and a copy/paste drops, which is why the plain text is
+        not enough to tell what went wrong.
+        """
+        shown = "\n".join(f"{n:4}| {line!r}"
+                           for n, line in enumerate(out.splitlines(), 1))
+        self.s.log(f"[{self.name}] unusable 'show vlan' ({reason}); raw output:\n{shown}")
 
     def _current_untagged_vlans(self, port_number: int) -> list[int]:
         """VIDs where the port is currently an untagged member.
@@ -93,7 +116,10 @@ class DlinkDes1210Driver(DlinkDriver):
         caller deletes the port from whatever this reports.
         """
         blocks, reason = self._read_vlan_blocks()
-        if blocks is None:
+        # Only the untagged lists matter here, but every block needs one: a port
+        # could be hiding in the line that went missing.
+        reason = reason or self._require(blocks, ("untagged",)) if blocks else reason
+        if blocks is None or reason:
             raise DriverError(
                 f"unusable 'show vlan' listing — {reason}. Refusing to guess "
                 f"which VLAN port {port_number} is in; re-run with -v to see "
@@ -103,15 +129,20 @@ class DlinkDes1210Driver(DlinkDriver):
     def port_vlans(self, port_number: int) -> set[int] | None:
         # Membership counts tagged *and* untagged, so a trunked uplink (a port in
         # 'Member Ports' with an empty 'Untagged Ports') is caught by the guard.
-        blocks, _ = self._read_vlan_blocks()
-        if blocks is None:
+        blocks, reason = self._read_vlan_blocks()
+        # Both lists are read here, so both must be present everywhere; otherwise
+        # the guard reports "don't know" and the caller warns instead of trusting.
+        if blocks is None or self._require(blocks, ("member", "untagged")):
             return None
         return {b["vid"] for b in blocks
                 if port_number in (b["member"] | b["untagged"])}
 
     def find_uplink_ports(self, uplink_vlan: int) -> list[int]:
         blocks, reason = self._read_vlan_blocks()
-        if blocks is None:
+        # Only the uplink VLAN's own block is read, so only it has to be intact.
+        reason = reason or self._require(blocks, ("member", "untagged"),
+                                         only_vid=uplink_vlan) if blocks else reason
+        if blocks is None or reason:
             self.s.log(f"[{self.name}] unusable 'show vlan' ({reason}) — tagging no uplink")
             return []
         ports: set[int] = set()

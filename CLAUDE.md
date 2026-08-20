@@ -129,7 +129,12 @@ rather than guessing. Two seam defects are handled rather than merely detected:
 on the same row, gluing the next record onto the legend — dropping that whole
 line loses a VLAN header), and it removes ANSI escapes plus stray control bytes.
 `_vlan_blocks` then scans records over the whole text, not line by line, so a
-stray break inside `VID : 118` doesn't hide the header. The
+stray break inside `VID : 118` doesn't hide the header. Validation is **per use**
+(`_require`): a seam eating one `Member Ports` line says nothing about untagged
+membership, so it must not block a port move — each caller demands only the lists
+it reads, and `find_uplink_ports` only for the uplink VID's own block. When a
+listing is still rejected, the raw dump is logged escaped (`-v`), because the
+damage is invisible characters that a terminal hides and a paste drops. The
 base `parse_port_status` handles Cisco-like `show interfaces status`; override
 it when the format differs (D-Link `show ports`, Huawei `display interface
 brief` — both do).
