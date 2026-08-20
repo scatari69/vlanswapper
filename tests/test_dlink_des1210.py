@@ -198,5 +198,75 @@ class PagedListingTests(unittest.TestCase):
         self.assertIn("aabb.ccdd.eeff", follow_up)
 
 
+# Verbatim 'show vlan' from a DES-1210-28/ME (172.17.2.112). Port 11 is untagged
+# in 315; the uplink VLAN 253 has member port 28 only. Both matter: an earlier
+# build misread this as "port 11 is in 109" and "253 lives on 27-28".
+REAL_VLAN_BLOCKS = [
+    ("1",   "default", "",                 ""),
+    ("109", "vlan109", "9,27-28",          "9"),
+    ("105", "vlan105", "5,27-28",          "5"),
+    ("118", "vlan118", "",                 ""),
+    ("111", "vlan111", "27-28",            ""),
+    ("253", "VLAN253", "28",               ""),
+    ("104", "vlan104", "4,28",             "4"),
+    ("315", "VLAN315", "1-3,6-8,10-26,28", "1-3,6-8,10-26"),
+]
+
+
+def real_show_vlan(blocks=REAL_VLAN_BLOCKS) -> str:
+    lines = [""]
+    for vid, name, member, untagged in blocks:
+        lines += [
+            f"VID                : {vid:<9} VLAN NAME      : {name}",
+            "VLAN Type          : Static",
+            "VLAN Advertisement : Disabled",
+            f"Member Ports       : {member}",
+            f"Untagged Ports     : {untagged}",
+            "Forbidden Ports    : ",
+            "",
+        ]
+    return "\n".join(lines)
+
+
+class RealVlanDumpTests(unittest.TestCase):
+    """Parsing the real dump, and refusing to act on a damaged one."""
+
+    def _drv(self, text):
+        return DlinkDes1210Driver(FakeSession({"show vlan": text}))
+
+    def test_intact_dump_reads_the_right_vlans(self):
+        drv = self._drv(real_show_vlan())
+        self.assertEqual(drv._current_untagged_vlans(11), [315])
+        self.assertEqual(drv._current_untagged_vlans(9), [109])
+        # The uplink VLAN's members, not some neighbouring block's 27-28.
+        self.assertEqual(drv.find_uplink_ports(253), [28])
+        self.assertEqual(drv.port_vlans(11), {315})
+
+    def test_dump_cut_at_a_page_seam_is_refused(self):
+        # Cut where the real first page ended: mid-block, after 111's Member line.
+        cut = "\n".join(real_show_vlan().split("\n")[:33])
+        with self.assertRaises(DriverError):
+            self._drv(cut)._current_untagged_vlans(11)
+        # The guard degrades to "don't know" rather than a wrong answer...
+        self.assertIsNone(self._drv(cut).port_vlans(11))
+        # ...and nothing gets tagged on a guessed uplink.
+        self.assertEqual(self._drv(cut).find_uplink_ports(253), [])
+
+    def test_lost_vid_header_is_refused(self):
+        # A dropped VID line would otherwise attach 315's ports to the block above.
+        damaged = "\n".join(l for l in real_show_vlan().split("\n")
+                            if "VID                : 315" not in l)
+        with self.assertRaises(DriverError):
+            self._drv(damaged)._current_untagged_vlans(11)
+
+    def test_fused_lines_are_refused(self):
+        # A page seam can also glue two records onto one line.
+        fused = real_show_vlan().replace(
+            "Member Ports       : 27-28\nUntagged Ports     : ",
+            "Member Ports       : 27-28VID                : 253  Untagged Ports     : ")
+        with self.assertRaises(DriverError):
+            self._drv(fused)._current_untagged_vlans(11)
+
+
 if __name__ == "__main__":
     unittest.main()

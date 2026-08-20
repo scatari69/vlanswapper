@@ -75,7 +75,9 @@ class PagedViewTests(unittest.TestCase):
         sess = PagingSession({
             "show fdb": "100 vlan100 AA-BB-CC-DD-EE-FF 7 Dynamic",
             "show ports": " 1  Enabled/Auto  Auto  Link Down  Enabled",
-            "show vlan": "VID : 253  VLAN NAME : mgmt\nMember Ports : 9-10\n",
+            "show vlan": ("VID                : 253  VLAN NAME : mgmt\n"
+                          "Member Ports       : 9-10\n"
+                          "Untagged Ports     : \n"),
         })
         drv = Dlink1100Driver(sess)
         drv.show_mac_table()
@@ -84,7 +86,9 @@ class PagedViewTests(unittest.TestCase):
         self.assertEqual(sess.paged, ["show fdb", "show ports", "show vlan"])
 
     def test_config_commands_are_not_paged(self):
-        sess = PagingSession({"show vlan": "VID : 1\nUntagged Ports : 1-10\n"})
+        sess = PagingSession({"show vlan": ("VID                : 1\n"
+                                            "Member Ports       : 1-10\n"
+                                            "Untagged Ports     : 1-10\n")})
         Dlink1100Driver(sess).set_access_vlan(5, 105)
         # The VLAN dump is a view (paged); the config writes are not.
         self.assertEqual(sess.paged, ["show vlan"])
@@ -311,6 +315,55 @@ class RefreshingPagerTests(unittest.TestCase):
         self.assertIn(b"q", sw.keys)                 # we actually left the pager
         self.assertLess(len(sw.keys), 5, "should stop as soon as the screen repeats")
         self.assertIn("aabb.ccdd.eeff", follow_up)   # session not stranded
+
+
+class AllKeyPagerTests(unittest.TestCase):
+    """When the legend offers 'a ALL', take it instead of walking pages."""
+
+    class AllKeySwitch(MockSwitch):
+        PAGER = b"CTRL+C ESC q Quit SPACE n Next Page ENTER Next Entry a ALL"
+
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.keys: list[bytes] = []
+
+        def _send_paged(self, conn, reply, prompt):
+            lines = reply.split(b"\r\n")
+            conn.sendall(b"\r\n" + b"\r\n".join(lines[:self.page_size])
+                         + b"\r\n" + self.PAGER)
+            rest = lines[self.page_size:]
+            while rest:
+                key = conn.recv(1)
+                if not key:
+                    return
+                self.keys.append(key)
+                if key in (b"a", b"A"):                  # dump everything left
+                    conn.sendall(b"\r\n" + b"\r\n".join(rest) + b"\r\n" + prompt)
+                    return
+                chunk, rest = rest[:self.page_size], rest[self.page_size:]
+                conn.sendall(b"\r\n" + b"\r\n".join(chunk))
+                conn.sendall(b"\r\n" + (self.PAGER if rest else prompt))
+
+        def _reply(self, line, prompt):
+            if line.lower().startswith("show ports"):
+                return ME_SHOW_PORTS.encode(), prompt
+            return super()._reply(line, prompt)
+
+    def test_all_key_fetches_the_rest_in_one_go(self):
+        sw = self.AllKeySwitch(page_size=6).start()
+        client = TelnetClient("127.0.0.1", sw.port, timeout=3.0)
+        client.open()
+        try:
+            session = Session(client)
+            session.login("admin", "secret")
+            ports = get_driver("dlink_des1210")(session).list_port_status()
+        finally:
+            client.close()
+
+        self.assertEqual(len(ports), 8)
+        # Exactly one keypress, and it was the ALL key — no page-by-page walk,
+        # so no page seams inside the collected listing.
+        self.assertEqual(sw.keys, [b"a"])
 
 
 if __name__ == "__main__":

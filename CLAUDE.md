@@ -118,7 +118,13 @@ strips the pager lines; with no pager it behaves exactly like `run`). Beware the
 second pager species: D-Link's `show ports` is a **live screen** (`p Previous
 Page r Refresh`) that redraws instead of ending, so `run_paged` stops once a
 page repeats and leaves it with `quit_key` (`q`) — without that it spins until
-`max_pages` and, worse, strands the device in the pager. The
+`max_pages` and, worse, strands the device in the pager. When a legend advertises
+a dump-everything key (`a ALL`), `run_paged` presses that instead of walking
+pages: one round trip and, crucially, **no page seams** in the collected text.
+Seams matter — DES-1210 `show vlan` is parsed into blocks, and a seam that drops
+or fuses a line silently reattributes a port list to the wrong VID, so
+`_vlan_blocks` validates the dump and returns `None` (callers refuse to act)
+rather than guessing. The
 base `parse_port_status` handles Cisco-like `show interfaces status`; override
 it when the format differs (D-Link `show ports`, Huawei `display interface
 brief` — both do).

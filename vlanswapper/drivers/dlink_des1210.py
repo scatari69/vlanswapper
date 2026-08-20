@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 
-from .base import parse_int_ranges
+from .base import DriverError, parse_int_ranges
 from .dlink import DlinkDriver
 
 # D-Link port lists ('1-3,5,7-9') are parsed by the same range parser.
@@ -33,67 +33,84 @@ class DlinkDes1210Driver(DlinkDriver):
     # 'des-1210' is longer than the generic 'des-' → autodetect prefers this driver.
     detect_markers = ("des-1210",)
 
-    def _current_untagged_vlans(self, port_number: int) -> list[int]:
-        """Find the VIDs where the port is currently an untagged member.
+    #: a VLAN block header, e.g. 'VID                : 253       VLAN NAME : mgmt'
+    _VID_RE = re.compile(r"\bVID\b\s*:\s*(\d+)")
+    #: a port-list line inside a block ('Member/Untagged/Tagged/Forbidden Ports')
+    _PORTS_RE = re.compile(r"\b(member|untagged|tagged|forbidden)\s+ports\b\s*:(.*)$",
+                           re.IGNORECASE)
 
-        The DES-1210-28 (Smart Managed) **does not support** ``show vlan ports
-        <n>`` — only the full ``show vlan`` works, which prints one block per
-        VLAN with a line like ``Current Untagged ports : 1-28``. We parse those
-        blocks and look for VLANs whose untagged list contains the port number.
+    def _vlan_blocks(self, text: str) -> list[dict] | None:
+        """Split a ``show vlan`` dump into well-formed blocks, or ``None``.
+
+        ``None`` means the dump cannot be trusted. That matters because these
+        listings are read through a pager, and a page seam landing inside a block
+        can drop or fuse lines — after which a port list gets attributed to the
+        wrong VID and the caller would happily delete the port from a VLAN it was
+        never in. Rather than guess, the callers treat ``None`` as "don't know".
+
+        Rejected as damaged: a VID header sharing a line with a port list, a port
+        list before any VID header, the same port list twice in one block (which
+        is what a lost VID header looks like), and a block cut short.
         """
-        out = self._run_view("show vlan")
-        vids: list[int] = []
-        cur_vid: int | None = None
-        for line in out.splitlines():
-            m = re.search(r"\bVID\b\s*:\s*(\d+)", line)
-            if m:
-                cur_vid = int(m.group(1))
-            if cur_vid is None:
+        blocks: list[dict] = []
+        cur: dict | None = None
+        for line in text.splitlines():
+            vid_m = self._VID_RE.search(line)
+            ports_m = self._PORTS_RE.search(line)
+            if vid_m and ports_m:
+                return None
+            if vid_m:
+                cur = {"vid": int(vid_m.group(1))}
+                blocks.append(cur)
                 continue
-            if re.search(r"untagged\s+ports\b", line, re.IGNORECASE) and ":" in line:
-                spec = line.split(":", 1)[1]
-                if port_number in _parse_port_list(spec) and cur_vid not in vids:
-                    vids.append(cur_vid)
-        return vids
+            if ports_m:
+                if cur is None:
+                    return None
+                key = ports_m.group(1).lower()
+                if key in cur:
+                    return None
+                cur[key] = parse_int_ranges(ports_m.group(2))
+        if not blocks:
+            return None
+        if any("member" not in b or "untagged" not in b for b in blocks):
+            return None
+        return blocks
+
+    def _read_vlan_blocks(self) -> list[dict] | None:
+        return self._vlan_blocks(self._run_view("show vlan"))
+
+    def _current_untagged_vlans(self, port_number: int) -> list[int]:
+        """VIDs where the port is currently an untagged member.
+
+        The DES-1210 has no ``show vlan ports <n>``; membership comes from the
+        block-style ``show vlan``. Raises rather than returning a guess, since the
+        caller deletes the port from whatever this reports.
+        """
+        blocks = self._read_vlan_blocks()
+        if blocks is None:
+            raise DriverError(
+                "could not read a complete 'show vlan' listing (the pager cut it "
+                "short) — refusing to guess which VLAN the port is in")
+        return [b["vid"] for b in blocks if port_number in b["untagged"]]
 
     def port_vlans(self, port_number: int) -> set[int] | None:
-        # The DES-1210 doesn't know 'show vlan ports <n>' — membership comes from
-        # the block-style 'show vlan'. Full membership (both tagged and untagged)
-        # is printed on the 'Member Ports' line; 'Untagged Ports' is a subset of
-        # it, and 'Forbidden Ports' is NOT membership and is ignored. This also
-        # catches a trunked uplink (a port in 'Member Ports' with empty 'Untagged').
-        out = self._run_view("show vlan")
-        if not out.strip():
+        # Membership counts tagged *and* untagged, so a trunked uplink (a port in
+        # 'Member Ports' with an empty 'Untagged Ports') is caught by the guard.
+        blocks = self._read_vlan_blocks()
+        if blocks is None:
             return None
-        vlans: set[int] = set()
-        cur_vid: int | None = None
-        for line in out.splitlines():
-            m = re.search(r"\bVID\b\s*:\s*(\d+)", line)
-            if m:
-                cur_vid = int(m.group(1))
-            if cur_vid is None or ":" not in line:
-                continue
-            if re.search(r"(?:member|(?:un)?tagged)\s+ports\b", line, re.IGNORECASE):
-                if port_number in _parse_port_list(line.split(":", 1)[1]):
-                    vlans.add(cur_vid)
-        return vlans
+        return {b["vid"] for b in blocks
+                if port_number in (b["member"] | b["untagged"])}
 
     def find_uplink_ports(self, uplink_vlan: int) -> list[int]:
-        # One 'show vlan' parse instead of the generic per-port enumeration:
-        # return the member ports of the uplink VID (both tagged and untagged).
-        out = self._run_view("show vlan")
-        if not out.strip():
+        blocks = self._read_vlan_blocks()
+        if blocks is None:
+            self.s.log(f"[{self.name}] incomplete 'show vlan' — tagging no uplink")
             return []
         ports: set[int] = set()
-        cur_vid: int | None = None
-        for line in out.splitlines():
-            m = re.search(r"\bVID\b\s*:\s*(\d+)", line)
-            if m:
-                cur_vid = int(m.group(1))
-            if cur_vid != uplink_vlan or ":" not in line:
-                continue
-            if re.search(r"(?:member|(?:un)?tagged)\s+ports\b", line, re.IGNORECASE):
-                ports |= _parse_port_list(line.split(":", 1)[1])
+        for b in blocks:
+            if b["vid"] == uplink_vlan:
+                ports |= b["member"] | b["untagged"]
         return sorted(ports)
 
     def set_access_vlan(self, port_number: int, vlan_id: int) -> None:

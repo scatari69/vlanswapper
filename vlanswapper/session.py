@@ -21,6 +21,11 @@ PRESS_ANY_RE = re.compile(r"press\s+(any\s+key|enter|return)", re.IGNORECASE)
 # Pager line shown when paged output can't be disabled: classic '--More--' and the
 # D-Link smart-switch variant 'CTRL+C ESC q Quit SPACE n Next Page ENTER Next Entry a All'.
 MORE_RE = re.compile(r"--\s*more\s*--|next\s+page", re.IGNORECASE)
+# Some pagers advertise a key that dumps everything left in one go, e.g. D-Link's
+# 'CTRL+C ESC q Quit SPACE n Next Page ENTER Next Entry a ALL'. Using it beats
+# walking page by page: one round trip, and no page boundaries to stitch back
+# together (a boundary landing mid-block is how a listing gets misparsed).
+ALL_KEY_RE = re.compile(r"\b(\w)\s+ALL\b", re.IGNORECASE)
 
 
 def _page_fingerprint(page: str) -> str:
@@ -141,13 +146,18 @@ class Session:
                 pages.append(text)
                 break
             page = _strip_pager(text, more)
+            # If the pager offers a "dump everything" key, take it: fewer round
+            # trips and, more importantly, no further page seams in the output.
+            legend = next((ln for ln in text.splitlines() if more.search(ln)), "")
+            all_key = ALL_KEY_RE.search(legend)
+            step_key = all_key.group(1) if all_key else page_key
             fingerprint = _page_fingerprint(page)
             if fingerprint in seen:            # redrawing, not advancing
                 self._leave_pager(quit_key, timeout)
                 break
             seen.add(fingerprint)
             pages.append(page)
-            self.c.write(page_key)             # bare key, no newline — that's what the pager wants
+            self.c.write(step_key)             # bare key, no newline — that's what the pager wants
         else:
             self._leave_pager(quit_key, timeout)
             raise TelnetError(f"pager did not finish after {max_pages} pages: {command!r}")
