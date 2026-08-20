@@ -10,8 +10,9 @@ switches like the DES-3200):
   port_vlan`` depending on the firmware; the DES-3200's familiar ``config gvrp
   ports ...`` does not exist here. Below we use ``config port_vlan`` — adjust it
   if it doesn't match your firmware (marked TODO).
-* Paging is disabled with the same ``disable clipaging``; if the firmware
-  doesn't know the command it returns an error — not fatal.
+* ``disable clipaging`` may be accepted and still leave ``show ports``/``show
+  vlan`` paging (seen on a DES-1210-28/ME), so listings are read through the
+  pager-aware path inherited from :class:`DlinkDriver`.
 
 All templates are **best-effort**, verified against docs rather than hardware.
 Before production use, check the output with ``--dry-run --vendor dlink_des1210``.
@@ -32,12 +33,6 @@ class DlinkDes1210Driver(DlinkDriver):
     name = "dlink_des1210"
     # 'des-1210' is longer than the generic 'des-' → autodetect prefers this driver.
     detect_markers = ("des-1210",)
-
-    def disable_paging(self) -> None:
-        # Some DES-1210 firmware lacks the command; ignore the error.
-        out = self._run("disable clipaging")
-        if "fail" in out.lower() or "error" in out.lower():
-            self.s.log("[des-1210] disable clipaging not supported — ignoring")
 
     def _current_untagged_vlans(self, port_number: int) -> list[int]:
         """Find the VIDs where the port is currently an untagged member.

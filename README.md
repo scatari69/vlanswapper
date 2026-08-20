@@ -20,11 +20,16 @@ picks it over the generic D-Link based on the `DES-1210` marker in the banner.
 The Telnet CLI is available only on firmware revisions C1/F and newer.
 
 The **D-Link 1100 series** (DES-1100 / DGS-1100, e.g. the DGS-1100-10) has its
-own driver (`--vendor dlink_1100`). Its CLI matches the DES-1210's, but the
-firmware keeps **paging enabled** for the MAC-table and port-list views: they
-stop on a `CTRL+C ESC q Quit SPACE n Next Page ...` line and wait for a keypress.
-The driver reads those views page by page automatically, so nothing hangs and
-the pager lines don't end up in the output.
+own driver (`--vendor dlink_1100`), and its CLI matches the DES-1210's.
+
+Across the whole D-Link range, `disable clipaging` is treated as unreliable:
+several models accept it and still return `show ports` / `show vlan` page by
+page (confirmed on a DES-1210-28/ME and a DGS-1100-10/ME), stopping on a
+`CTRL+C ESC q Quit SPACE n Next Page ...` line. Every listing is therefore read
+pager-aware — pages are collected and the legend stripped — and `show ports`,
+which on some firmware is a live screen that redraws rather than ending, is left
+with `q` once its output repeats. Nothing to configure; devices that don't page
+are read exactly as before.
 
 The Metro Ethernet **/ME** models (DGS-1100-06/ME, -10/ME, ...) get their own
 driver (`--vendor dlink_1100_me`) so they aren't silently handled as plain

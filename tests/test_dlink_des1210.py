@@ -7,9 +7,12 @@ matched by command substring and remembers everything sent.
 import types
 import unittest
 
+from tests.mock_switch import MockSwitch
 from vlanswapper.detect import detect_vendor
 from vlanswapper.drivers import get_driver
 from vlanswapper.drivers.dlink_des1210 import DlinkDes1210Driver
+from vlanswapper.session import Session
+from vlanswapper.telnet import TelnetClient
 
 
 class FakeSession:
@@ -129,6 +132,56 @@ class VlanCommandTests(unittest.TestCase):
         sess = FakeSession({"show fdb mac_address": fdb})
         port = DlinkDes1210Driver(sess).find_port_by_mac("aa:bb:cc:dd:ee:ff")
         self.assertEqual(port, 7)
+
+
+# Verbatim 'show ports' from a DES-1210-28/ME: two lines per port, and the
+# listing pages even though 'disable clipaging' was accepted.
+DES1210_SHOW_PORTS = "\r\n".join([
+    "Port  State/     Settings                 Connection               Address",
+    "Type  MDI        Speed/Duplex/FlowCtrl    Speed/Duplex/FlowCtrl    Learning",
+    "----- -------    ---------------------    ---------------------    --------",
+] + [
+    line
+    for port in range(1, 29)
+    for line in (
+        f"{port}     Enabled    Auto/Disabled            "
+        + ("Link Down                Enabled" if port % 4 == 0 else
+           "100M/Full/Disabled       Enabled"),
+        "      Auto",
+    )
+])
+
+
+class PagedListingTests(unittest.TestCase):
+    """The /ME variant pages 'show ports'; the 1210 driver must cope."""
+
+    class Des1210MeSwitch(MockSwitch):
+        # Legend printed by this firmware (a listing pager, not a live screen).
+        PAGER = b"CTRL+C ESC q Quit SPACE n Next Page ENTER Next Entry a ALL"
+
+        def _reply(self, line, prompt):
+            if line.lower().startswith("show ports"):
+                return DES1210_SHOW_PORTS.encode(), prompt
+            return super()._reply(line, prompt)
+
+    def test_port_list_read_across_pages(self):
+        sw = self.Des1210MeSwitch(page_size=21).start()   # ~3 pages of output
+        client = TelnetClient("127.0.0.1", sw.port, timeout=3.0)
+        client.open()
+        try:
+            session = Session(client)
+            session.login("admin", "secret")
+            driver = get_driver("dlink_des1210")(session)
+            ports = driver.list_port_status()
+            follow_up = session.run("show mac address-table")
+        finally:
+            client.close()
+
+        self.assertEqual(len(ports), 28)
+        expected = [(p, "down" if p % 4 == 0 else "up") for p in range(1, 29)]
+        self.assertEqual(ports, expected)
+        # The device is back at its prompt, not stranded in the pager.
+        self.assertIn("aabb.ccdd.eeff", follow_up)
 
 
 if __name__ == "__main__":

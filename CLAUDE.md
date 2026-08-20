@@ -9,9 +9,9 @@ the rule `vlan_id = 100 + port_number` (an ISP per-port-VLAN scheme). The port i
 given by number or resolved from a client MAC. The switch vendor is
 auto-detected on connect. Supported vendors: D-Link, Eltex, Huawei, BDCOM, Zyxel.
 Model-specific drivers subclass the generic one (e.g. `dlink_des1210` extends
-`dlink`, `dlink_1100` extends `dlink_des1210` adding the pager workaround, and
-`dlink_1100_me` extends `dlink_1100` — the /ME shares both the 1210 CLI *and*
-that paging quirk); `detect._match` picks the driver with the **longest** matching
+`dlink`, `dlink_1100` extends `dlink_des1210`, `dlink_1100_me` extends
+`dlink_1100`); pager handling lives in `dlink` itself, since every D-Link seen so
+far may page its listings regardless of `disable clipaging`; `detect._match` picks the driver with the **longest** matching
 marker, so `des-1210`/`dgs-1100` win over the generic `des-`/`dgs-`, and the
 `/ME` markers (`1100-10/me`, ...) must stay longer than `dgs-1100` to win in
 turn — that ordering is what keeps the Metro Ethernet line off the plain-1100
@@ -112,7 +112,7 @@ commands: `mac_table_cmd` (full FDB dump → `BaseDriver.show_mac_table`) and
 `parse_port_status` and merges combo-port duplicates by up>down>disabled). Every
 listing goes through `BaseDriver._run_view` rather than `_run` — that's the one
 hook to override when a firmware keeps **paging on** for these views despite
-`disable_paging` (`dlink_1100` routes it to `Session.run_paged`, which answers
+`disable_paging` (the whole `dlink` family routes it to `Session.run_paged`, which answers
 the `--More--`/`Next Page` legend with a space until the prompt returns and
 strips the pager lines; with no pager it behaves exactly like `run`). Beware the
 second pager species: D-Link's `show ports` is a **live screen** (`p Previous

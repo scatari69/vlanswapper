@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 
 from .. import mac as macfmt
+from ..session import MORE_RE
 from .base import BaseDriver, DriverError
 
 
@@ -23,9 +24,29 @@ class DlinkDriver(BaseDriver):
     detect_markers = ("d-link", "des-", "dgs-", "dlink")
     mac_table_cmd = "show fdb"
     port_status_cmd = "show ports"
+    #: pager line this family stops on; overridable per firmware revision.
+    more_re = MORE_RE
+    #: key that advances one page (space on every D-Link CLI seen so far).
+    page_key = " "
+    #: key that leaves an interactive pager — 'show ports' is a live screen on
+    #: some firmware and redraws instead of ever returning to the prompt.
+    quit_key = "q"
 
     def disable_paging(self) -> None:
-        self._run("disable clipaging")
+        # Best effort only. Across the D-Link range this command may be missing,
+        # or succeed and still leave 'show ports'/'show vlan' paging (confirmed on
+        # DES-1210-28/ME and DGS-1100-10/ME), so the listing views never rely on
+        # it — see _run_view.
+        out = self._run("disable clipaging")
+        if "fail" in out.lower() or "error" in out.lower():
+            self.s.log(f"[{self.name}] disable clipaging not supported — ignoring")
+
+    def _run_view(self, command: str) -> str:
+        # Listings go through the pager-aware read: harmless when nothing pages
+        # (run_paged then behaves exactly like run), and the difference between
+        # a working listing and a timeout when something does.
+        return self.s.run_paged(command, self.more_re, page_key=self.page_key,
+                                quit_key=self.quit_key)
 
     # D-Link has no separate configuration mode.
     def enter_config(self) -> None:
