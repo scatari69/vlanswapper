@@ -39,45 +39,53 @@ class DlinkDes1210Driver(DlinkDriver):
     _PORTS_RE = re.compile(r"\b(member|untagged|tagged|forbidden)\s+ports\b\s*:(.*)$",
                            re.IGNORECASE)
 
-    def _vlan_blocks(self, text: str) -> list[dict] | None:
-        """Split a ``show vlan`` dump into well-formed blocks, or ``None``.
+    def _vlan_blocks(self, text: str) -> tuple[list[dict] | None, str]:
+        """Split a ``show vlan`` dump into blocks; report why if it can't be trusted.
 
-        ``None`` means the dump cannot be trusted. That matters because these
-        listings are read through a pager, and a page seam landing inside a block
-        can drop or fuse lines — after which a port list gets attributed to the
-        wrong VID and the caller would happily delete the port from a VLAN it was
-        never in. Rather than guess, the callers treat ``None`` as "don't know".
-
-        Rejected as damaged: a VID header sharing a line with a port list, a port
-        list before any VID header, the same port list twice in one block (which
-        is what a lost VID header looks like), and a block cut short.
+        Returns ``(blocks, "")`` or ``(None, reason)``. The reason names the exact
+        defect and is surfaced to the operator, because these listings come back
+        through a pager: a page seam landing inside a block drops or fuses lines,
+        after which a port list is attributed to the wrong VID and the caller
+        would delete the port from a VLAN it was never in.
         """
         blocks: list[dict] = []
         cur: dict | None = None
-        for line in text.splitlines():
+        for lineno, line in enumerate(text.splitlines(), 1):
             vid_m = self._VID_RE.search(line)
             ports_m = self._PORTS_RE.search(line)
             if vid_m and ports_m:
-                return None
+                return None, (f"line {lineno} has a VID header glued to a port "
+                              f"list: {line.strip()[:70]!r}")
             if vid_m:
                 cur = {"vid": int(vid_m.group(1))}
                 blocks.append(cur)
                 continue
             if ports_m:
                 if cur is None:
-                    return None
+                    return None, (f"line {lineno} is a port list before any VID "
+                                  f"header: {line.strip()[:70]!r}")
                 key = ports_m.group(1).lower()
                 if key in cur:
-                    return None
+                    return None, (f"VLAN {cur['vid']} lists '{key} ports' twice "
+                                  f"(line {lineno}) — a VID header went missing")
                 cur[key] = parse_int_ranges(ports_m.group(2))
         if not blocks:
-            return None
-        if any("member" not in b or "untagged" not in b for b in blocks):
-            return None
-        return blocks
+            return None, f"no VLAN blocks in {len(text.splitlines())} lines of output"
+        for b in blocks:
+            for key in ("member", "untagged"):
+                if key not in b:
+                    return None, (f"VLAN {b['vid']} has no '{key} ports' line — the "
+                                  f"listing stops there ({len(blocks)} blocks read)")
+        return blocks, ""
 
-    def _read_vlan_blocks(self) -> list[dict] | None:
-        return self._vlan_blocks(self._run_view("show vlan"))
+    def _read_vlan_blocks(self) -> tuple[list[dict] | None, str]:
+        out = self._run_view("show vlan")
+        blocks, reason = self._vlan_blocks(out)
+        if blocks is None:
+            # Only visible with -v: long, but it is what pins down where the
+            # pager truncated the listing.
+            self.s.log(f"[{self.name}] unusable 'show vlan' ({reason}); raw output:\n{out}")
+        return blocks, reason
 
     def _current_untagged_vlans(self, port_number: int) -> list[int]:
         """VIDs where the port is currently an untagged member.
@@ -86,26 +94,27 @@ class DlinkDes1210Driver(DlinkDriver):
         block-style ``show vlan``. Raises rather than returning a guess, since the
         caller deletes the port from whatever this reports.
         """
-        blocks = self._read_vlan_blocks()
+        blocks, reason = self._read_vlan_blocks()
         if blocks is None:
             raise DriverError(
-                "could not read a complete 'show vlan' listing (the pager cut it "
-                "short) — refusing to guess which VLAN the port is in")
+                f"unusable 'show vlan' listing — {reason}. Refusing to guess "
+                f"which VLAN port {port_number} is in; re-run with -v to see "
+                f"the raw output")
         return [b["vid"] for b in blocks if port_number in b["untagged"]]
 
     def port_vlans(self, port_number: int) -> set[int] | None:
         # Membership counts tagged *and* untagged, so a trunked uplink (a port in
         # 'Member Ports' with an empty 'Untagged Ports') is caught by the guard.
-        blocks = self._read_vlan_blocks()
+        blocks, _ = self._read_vlan_blocks()
         if blocks is None:
             return None
         return {b["vid"] for b in blocks
                 if port_number in (b["member"] | b["untagged"])}
 
     def find_uplink_ports(self, uplink_vlan: int) -> list[int]:
-        blocks = self._read_vlan_blocks()
+        blocks, reason = self._read_vlan_blocks()
         if blocks is None:
-            self.s.log(f"[{self.name}] incomplete 'show vlan' — tagging no uplink")
+            self.s.log(f"[{self.name}] unusable 'show vlan' ({reason}) — tagging no uplink")
             return []
         ports: set[int] = set()
         for b in blocks:

@@ -252,6 +252,22 @@ class RealVlanDumpTests(unittest.TestCase):
         # ...and nothing gets tagged on a guessed uplink.
         self.assertEqual(self._drv(cut).find_uplink_ports(253), [])
 
+    def test_refusal_names_the_defect(self):
+        # The message has to be actionable on its own: it says which VLAN the
+        # listing stops at, so the operator doesn't need to re-run with -v.
+        cut = "\n".join(real_show_vlan().split("\n")[:33])
+        with self.assertRaises(DriverError) as cm:
+            self._drv(cut)._current_untagged_vlans(11)
+        msg = str(cm.exception)
+        self.assertIn("VLAN 111", msg)
+        self.assertIn("untagged ports", msg)
+        self.assertIn("5 blocks read", msg)
+
+    def test_empty_output_is_refused(self):
+        with self.assertRaises(DriverError) as cm:
+            self._drv("")._current_untagged_vlans(11)
+        self.assertIn("no VLAN blocks", str(cm.exception))
+
     def test_lost_vid_header_is_refused(self):
         # A dropped VID line would otherwise attach 315's ports to the block above.
         damaged = "\n".join(l for l in real_show_vlan().split("\n")
