@@ -284,5 +284,37 @@ class RealVlanDumpTests(unittest.TestCase):
             self._drv(fused)._current_untagged_vlans(11)
 
 
+class SeamDamageTests(unittest.TestCase):
+    """A page seam like the one seen on 172.17.2.112 must not lose a VLAN."""
+
+    LEGEND = "CTRL+C ESC q Quit SPACE n Next Page ENTER Next Entry a ALL"
+
+    def _collected(self):
+        from vlanswapper.session import MORE_RE, _strip_pager
+        text = real_show_vlan()
+        # Glue the legend in front of VLAN 118's header, as the device does when
+        # it carries on across the seam without a line break.
+        damaged = text.replace("VID                : 118",
+                               self.LEGEND + "VID                : 118")
+        return _strip_pager(damaged, MORE_RE)
+
+    def test_seam_does_not_lose_a_vlan(self):
+        drv = DlinkDes1210Driver(FakeSession({"show vlan": self._collected()}))
+        blocks, reason = drv._vlan_blocks(self._collected())
+        self.assertEqual(reason, "")
+        self.assertEqual([b["vid"] for b in blocks],
+                         [1, 109, 105, 118, 111, 253, 104, 315])
+        self.assertEqual(drv._current_untagged_vlans(11), [315])
+        self.assertEqual(drv.find_uplink_ports(253), [28])
+
+    def test_record_split_by_a_stray_break_still_parses(self):
+        # A stray carriage return can break a record in half; the scan spans
+        # newlines so the header is still recognised.
+        text = real_show_vlan().replace("VID                : 315",
+                                        "VID\n                : 315")
+        drv = DlinkDes1210Driver(FakeSession({"show vlan": text}))
+        self.assertEqual(drv._current_untagged_vlans(11), [315])
+
+
 if __name__ == "__main__":
     unittest.main()

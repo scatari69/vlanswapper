@@ -33,42 +33,40 @@ class DlinkDes1210Driver(DlinkDriver):
     # 'des-1210' is longer than the generic 'des-' → autodetect prefers this driver.
     detect_markers = ("des-1210",)
 
-    #: a VLAN block header, e.g. 'VID                : 253       VLAN NAME : mgmt'
-    _VID_RE = re.compile(r"\bVID\b\s*:\s*(\d+)")
-    #: a port-list line inside a block ('Member/Untagged/Tagged/Forbidden Ports')
-    _PORTS_RE = re.compile(r"\b(member|untagged|tagged|forbidden)\s+ports\b\s*:(.*)$",
-                           re.IGNORECASE)
+    #: One scan for both record kinds, in the order they appear. Whitespace
+    #: classes span newlines on purpose: a page seam can drop a stray line break
+    #: inside a record ('VID\n : 118'), and a line-by-line reader would lose the
+    #: header and charge the port lists that follow to the VLAN above it.
+    _RECORD_RE = re.compile(
+        r"\bVID\b\s*:\s*(\d+)"
+        r"|\b(member|untagged|tagged|forbidden)\s+ports\b\s*:([^\r\n]*)",
+        re.IGNORECASE)
 
     def _vlan_blocks(self, text: str) -> tuple[list[dict] | None, str]:
         """Split a ``show vlan`` dump into blocks; report why if it can't be trusted.
 
         Returns ``(blocks, "")`` or ``(None, reason)``. The reason names the exact
         defect and is surfaced to the operator, because these listings come back
-        through a pager: a page seam landing inside a block drops or fuses lines,
-        after which a port list is attributed to the wrong VID and the caller
-        would delete the port from a VLAN it was never in.
+        through a pager: damage at a page seam can drop or fuse lines, after which
+        a port list is attributed to the wrong VID and the caller would delete the
+        port from a VLAN it was never in.
         """
         blocks: list[dict] = []
         cur: dict | None = None
-        for lineno, line in enumerate(text.splitlines(), 1):
-            vid_m = self._VID_RE.search(line)
-            ports_m = self._PORTS_RE.search(line)
-            if vid_m and ports_m:
-                return None, (f"line {lineno} has a VID header glued to a port "
-                              f"list: {line.strip()[:70]!r}")
-            if vid_m:
-                cur = {"vid": int(vid_m.group(1))}
+        for m in self._RECORD_RE.finditer(text):
+            lineno = text.count("\n", 0, m.start()) + 1
+            if m.group(1) is not None:
+                cur = {"vid": int(m.group(1))}
                 blocks.append(cur)
                 continue
-            if ports_m:
-                if cur is None:
-                    return None, (f"line {lineno} is a port list before any VID "
-                                  f"header: {line.strip()[:70]!r}")
-                key = ports_m.group(1).lower()
-                if key in cur:
-                    return None, (f"VLAN {cur['vid']} lists '{key} ports' twice "
-                                  f"(line {lineno}) — a VID header went missing")
-                cur[key] = parse_int_ranges(ports_m.group(2))
+            if cur is None:
+                return None, (f"line {lineno} is a port list before any VID "
+                              f"header: {m.group(0).strip()[:60]!r}")
+            key = m.group(2).lower()
+            if key in cur:
+                return None, (f"VLAN {cur['vid']} lists '{key} ports' twice "
+                              f"(line {lineno}) — a VID header went missing")
+            cur[key] = parse_int_ranges(m.group(3))
         if not blocks:
             return None, f"no VLAN blocks in {len(text.splitlines())} lines of output"
         for b in blocks:

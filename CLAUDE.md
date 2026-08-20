@@ -124,7 +124,12 @@ pages: one round trip and, crucially, **no page seams** in the collected text.
 Seams matter — DES-1210 `show vlan` is parsed into blocks, and a seam that drops
 or fuses a line silently reattributes a port list to the wrong VID, so
 `_vlan_blocks` validates the dump and returns `None` (callers refuse to act)
-rather than guessing. The
+rather than guessing. Two seam defects are handled rather than merely detected:
+`_strip_pager` excises only the legend's own tokens (the device often continues
+on the same row, gluing the next record onto the legend — dropping that whole
+line loses a VLAN header), and it removes ANSI escapes plus stray control bytes.
+`_vlan_blocks` then scans records over the whole text, not line by line, so a
+stray break inside `VID : 118` doesn't hide the header. The
 base `parse_port_status` handles Cisco-like `show interfaces status`; override
 it when the format differs (D-Link `show ports`, Huawei `display interface
 brief` — both do).

@@ -33,15 +33,47 @@ def _page_fingerprint(page: str) -> str:
     return "\n".join(line.strip() for line in page.splitlines() if line.strip())
 
 
-def _strip_pager(text: str, more: re.Pattern[str]) -> str:
-    """Drop the pager line and the backspaces the device erases it with.
+#: ANSI CSI sequences ('\x1b[K', '\x1b[2J', ...) a pager uses to erase its legend.
+ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+#: control bytes that are not line structure — they land mid-line at a page seam
+#: and would otherwise split or corrupt the record being read.
+CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
-    The whole line goes, not just the matched marker: a real pager prints a full
-    legend ('CTRL+C ESC q Quit SPACE n Next Page ...') and leaving its tail in
-    the output would corrupt the listing being parsed.
+
+#: the tokens a pager legend is built from, so the legend can be excised without
+#: taking any output that got glued onto the same line with it.
+LEGEND_RE = re.compile(
+    r"(?:CTRL\s*\+\s*C|ESC|SPACE|ENTER|Next\s+Page|Next\s+Entry|Previous\s+Page|"
+    r"Refresh|Quit|ALL|--\s*More\s*--|\b\w\b|[\s.]+)+", re.IGNORECASE)
+
+
+def _strip_pager(text: str, more: re.Pattern[str]) -> str:
+    """Remove the pager legend, keeping everything else on its line.
+
+    Dropping the whole line is not safe: after a keypress the device often
+    continues on the same row, so the next record can be glued onto the legend
+    ('... a ALLVID : 118  VLAN NAME : vlan118'). Deleting that line loses a VLAN
+    header, and the port lists that follow then get charged to the VLAN above it.
+    So cut out exactly the legend's own tokens and keep the remainder.
+
+    ANSI escapes and stray control bytes go too — a pager erases itself with
+    them, and left in place they split or corrupt the record being parsed.
     """
-    lines = text.replace("\x08", "").splitlines()
-    return "\n".join(line for line in lines if not more.search(line))
+    cleaned = CTRL_RE.sub("", ANSI_RE.sub("", text))
+    kept: list[str] = []
+    for line in cleaned.splitlines():
+        m = more.search(line)
+        if not m:
+            kept.append(line)
+            continue
+        # Cut the whole legend run, not just from the marker: the legend starts
+        # earlier on the line ('CTRL+C ESC q Quit SPACE n Next Page ...').
+        span = next((s for s in LEGEND_RE.finditer(line)
+                     if s.start() <= m.start() < s.end()), None)
+        rest = line[:span.start()] + line[span.end():] if span else line[:m.start()]
+        if rest.strip():
+            kept.append(rest)
+    return "\n".join(kept)
 
 
 class LoginError(Exception):
@@ -113,7 +145,7 @@ class Session:
 
     def run_paged(self, command: str, more_re=MORE_RE, page_key: str = " ",
                   quit_key: str = "q", timeout: float | None = None,
-                  max_pages: int = 500) -> str:
+                  max_pages: int = 500, settle: float = 0.2) -> str:
         """Run a command whose output the device pages, and collect every page.
 
         Some firmware ignores the "disable paging" command for certain views (the
@@ -145,6 +177,10 @@ class Session:
             if idx == 1:                       # prompt: last page, output complete
                 pages.append(text)
                 break
+            # The match fires on 'Next Page', mid-legend; without waiting for the
+            # rest of the line we would miss the 'a ALL' key it advertises and
+            # walk the output page by page instead — one seam per page.
+            text += self.c.drain(settle)
             page = _strip_pager(text, more)
             # If the pager offers a "dump everything" key, take it: fewer round
             # trips and, more importantly, no further page seams in the output.

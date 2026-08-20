@@ -6,6 +6,7 @@ from pathlib import Path
 
 from vlanswapper import mac
 from vlanswapper.blacklist import is_blacklisted, load_blacklist
+from vlanswapper.session import MORE_RE, _strip_pager
 from vlanswapper.drivers.dlink import DlinkDriver
 from vlanswapper.drivers.eltex import EltexDriver
 from vlanswapper.drivers.huawei import HuaweiDriver
@@ -177,6 +178,31 @@ class BlacklistTests(unittest.TestCase):
 
     def test_malformed_entry_is_ignored(self):
         self.assertFalse(is_blacklisted("192.0.2.10", ["not/a/network"]))
+
+
+class PagerStrippingTests(unittest.TestCase):
+    LEGEND = "CTRL+C ESC q Quit SPACE n Next Page ENTER Next Entry a ALL"
+
+    def test_record_glued_to_the_legend_survives(self):
+        # After a keypress the device may continue on the same row. Dropping the
+        # whole legend line would take the VLAN header with it, and the port
+        # lists below would then be charged to the VLAN above.
+        text = ("Forbidden Ports    : \r\n" + self.LEGEND +
+                "VID                : 118       VLAN NAME      : vlan118\r\n")
+        kept = _strip_pager(text, MORE_RE).splitlines()
+        self.assertEqual(kept, ["Forbidden Ports    : ",
+                                "VID                : 118       VLAN NAME      : vlan118"])
+
+    def test_legend_on_its_own_line_goes_completely(self):
+        text = "Untagged Ports     : 9\r\n" + self.LEGEND + "\r\nForbidden Ports    : "
+        self.assertEqual(_strip_pager(text, MORE_RE).splitlines(),
+                         ["Untagged Ports     : 9", "Forbidden Ports    : "])
+
+    def test_ansi_and_control_bytes_are_removed(self):
+        # A pager erases itself with escapes; left in place they corrupt records.
+        text = "VID\x1b[K                : 7\r\n\x00Member Ports       : 1"
+        self.assertEqual(_strip_pager(text, MORE_RE).splitlines(),
+                         ["VID                : 7", "Member Ports       : 1"])
 
 
 class TelnetParsingTests(unittest.TestCase):
