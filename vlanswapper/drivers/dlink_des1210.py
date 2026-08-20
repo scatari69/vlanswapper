@@ -6,10 +6,9 @@ switches like the DES-3200):
 * This is a **Smart Managed** switch. A Telnet CLI exists only on firmware
   revisions **C1/F** and newer; on earlier revisions management is web/
   SmartConsole/SNMP only — the driver cannot work there.
-* On the DES-1210 the PVID is set with ``config vlan_precedence``/``config
-  port_vlan`` depending on the firmware; the DES-3200's familiar ``config gvrp
-  ports ...`` does not exist here. Below we use ``config port_vlan`` — adjust it
-  if it doesn't match your firmware (marked TODO).
+* The port is moved purely by untagged VLAN membership; no PVID command is
+  issued (neither ``config port_vlan ... pvid`` nor the DES-3200's ``config
+  gvrp ports ... pvid``).
 * ``disable clipaging`` may be accepted and still leave ``show ports``/``show
   vlan`` paging (seen on a DES-1210-28/ME), so listings are read through the
   pager-aware path inherited from :class:`DlinkDriver`.
@@ -103,7 +102,6 @@ class DlinkDes1210Driver(DlinkDriver):
         for old in self._current_untagged_vlans(port_number):
             if old != vlan_id:
                 self._run(f"config vlan vlanid {old} delete {port_number}")
-        self._run(f"config vlan vlanid {vlan_id} add untagged {port_number}")
-        # TODO: PVID on the DES-1210. Per the docs it's 'config port_vlan <port> pvid <vid>'.
-        # On some F firmware: 'config vlan_precedence'. Verify on your model.
-        self._run(f"config port_vlan {port_number} pvid {vlan_id}")
+        # No PVID command on purpose (see DlinkDriver.set_access_vlan).
+        out = self._run(f"config vlan vlanid {vlan_id} add untagged {port_number}")
+        self._check_untagged_accepted(out, port_number, vlan_id)

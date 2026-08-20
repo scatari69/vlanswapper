@@ -9,7 +9,7 @@ import unittest
 
 from tests.mock_switch import MockSwitch
 from vlanswapper.detect import detect_vendor
-from vlanswapper.drivers import get_driver
+from vlanswapper.drivers import DriverError, get_driver
 from vlanswapper.drivers.dlink_des1210 import DlinkDes1210Driver
 from vlanswapper.session import Session
 from vlanswapper.telnet import TelnetClient
@@ -88,8 +88,8 @@ class VlanCommandTests(unittest.TestCase):
         DlinkDes1210Driver(sess).set_access_vlan(5, 105)
         self.assertIn("config vlan vlanid 1 delete 5", sess.sent)
         self.assertIn("config vlan vlanid 105 add untagged 5", sess.sent)
-        self.assertIn("config port_vlan 5 pvid 105", sess.sent)
-        # The PVID command is the model-specific one, not the DES-3200 gvrp.
+        # No PVID step at all — membership alone moves the port.
+        self.assertFalse(any("pvid" in c for c in sess.sent))
         self.assertFalse(any("gvrp" in c for c in sess.sent))
         # Exactly 'show vlan' without 'ports' — 'show vlan ports N' doesn't work on the 1210.
         self.assertIn("show vlan", sess.sent)
@@ -126,6 +126,20 @@ class VlanCommandTests(unittest.TestCase):
         # The access port itself is still set untagged, not tagged.
         self.assertIn("config vlan vlanid 105 add untagged 5", sess.sent)
         self.assertNotIn("config vlan vlanid 105 add tagged 5", sess.sent)
+
+    def test_rejected_untagged_add_is_reported(self):
+        # The switch refuses when the port is still untagged elsewhere; the
+        # driver must raise instead of letting the caller print "Done".
+        sess = FakeSession({"show vlan": self.SHOW_VLAN,
+                            "add untagged": "Fail! The port is a member of another VLAN."})
+        with self.assertRaises(DriverError) as cm:
+            DlinkDes1210Driver(sess).set_access_vlan(11, 111)
+        self.assertIn("111", str(cm.exception))
+        self.assertIn("untagged in another VLAN", str(cm.exception))
+
+    def test_accepted_untagged_add_is_silent(self):
+        sess = FakeSession({"show vlan": self.SHOW_VLAN})   # empty reply = success
+        DlinkDes1210Driver(sess).set_access_vlan(11, 111)   # must not raise
 
     def test_find_port_by_mac(self):
         fdb = "100  vlan100  AA-BB-CC-DD-EE-FF  7  Dynamic"

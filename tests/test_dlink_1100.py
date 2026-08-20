@@ -89,7 +89,8 @@ class PagedViewTests(unittest.TestCase):
         # The VLAN dump is a view (paged); the config writes are not.
         self.assertEqual(sess.paged, ["show vlan"])
         self.assertIn("config vlan vlanid 105 add untagged 5", sess.sent)
-        self.assertIn("config port_vlan 5 pvid 105", sess.sent)
+        # No PVID step at all — membership alone moves the port.
+        self.assertFalse(any("pvid" in c for c in sess.sent))
 
     def test_inherits_des1210_uplink_parsing(self):
         show_vlan = (
@@ -213,7 +214,8 @@ class MeVariantTests(unittest.TestCase):
         # ...and the port move uses the 1210 syntax, not the DES-3200 gvrp one.
         self.assertIn("config vlan vlanid 1 delete 5", sess.sent)
         self.assertIn("config vlan vlanid 105 add untagged 5", sess.sent)
-        self.assertIn("config port_vlan 5 pvid 105", sess.sent)
+        # No PVID step at all — membership alone moves the port.
+        self.assertFalse(any("pvid" in c for c in sess.sent))
         self.assertFalse(any("gvrp" in c for c in sess.sent))
 
 

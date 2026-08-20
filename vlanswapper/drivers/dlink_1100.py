@@ -2,7 +2,7 @@
 
 The CLI is the DES-1210's, so this driver inherits it
 (:class:`DlinkDes1210Driver`) — block-style ``show vlan``, ``config vlan vlanid
-... add untagged``, ``config port_vlan <port> pvid <vid>``.
+... add untagged`` (no PVID command).
 
 The class exists to identify and report the model, and to hold any 1100-only
 difference that turns up. Paging is *not* one of them any more: the whole D-Link

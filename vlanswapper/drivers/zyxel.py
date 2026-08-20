@@ -1,8 +1,8 @@
 """Zyxel driver (managed GS/XGS-series switches).
 
-On Zyxel, a port's VLAN membership and PVID are set separately: first add the
-port as untagged in the ``vlan <id>`` context, then set the PVID in the port
-context.
+On Zyxel the port is added as untagged in the ``vlan <id>`` context. Zyxel also
+has a separate PVID command in the port context, but it is deliberately not
+issued — see :meth:`DlinkDriver.set_access_vlan`.
 """
 
 from __future__ import annotations
@@ -43,10 +43,7 @@ class ZyxelDriver(BaseDriver):
         self._run(f"fixed {port_number}")
         self._run(f"untagged {port_number}")
         self._run("exit")
-        # Set the port PVID — the previous access VLAN is replaced by the new PVID.
-        self._run(f"interface port-channel {port_number}")
-        self._run(f"pvid {vlan_id}")
-        self._run("exit")
+        # No PVID command on purpose: the port is moved by untagged membership.
 
     def add_tagged_vlan(self, port_number: int, vlan_id: int) -> None:
         # In the vlan context, mark the port tagged (fixed member, no untagging).

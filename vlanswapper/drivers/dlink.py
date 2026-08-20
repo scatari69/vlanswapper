@@ -2,12 +2,12 @@
 
 D-Link's quirk: there is no configuration mode and no ``switchport access
 vlan`` — VLAN membership is configured with one-line ``config vlan ... add
-untagged`` commands plus a separate PVID setting. So "removing the old VLAN"
-must be done explicitly: find the port's current untagged VLAN and delete it
-from there.
+untagged`` commands. So "removing the old VLAN" must be done explicitly: find
+the port's current untagged VLAN and delete it from there.
 
-The syntax depends heavily on the series/firmware (especially the PVID
-command) — marked TODO. Verify on the specific model.
+No PVID command is issued anywhere in this family: untagged membership is what
+moves the port. The syntax otherwise depends on the series/firmware — verify on
+the specific model.
 """
 
 from __future__ import annotations
@@ -99,9 +99,24 @@ class DlinkDriver(BaseDriver):
         for old in self._current_untagged_vlans(port_number):
             if old != vlan_id:
                 self._run(f"config vlan vlanid {old} delete {port_number}")
-        self._run(f"config vlan vlanid {vlan_id} add untagged {port_number}")
-        # TODO: the PVID command depends on the series. On DES-3200 it's 'config gvrp ports'.
-        self._run(f"config gvrp ports {port_number} pvid {vlan_id}")
+        # No PVID command on purpose: adding the port as an untagged member is
+        # what moves it, and the separate PVID step is not wanted here.
+        out = self._run(f"config vlan vlanid {vlan_id} add untagged {port_number}")
+        self._check_untagged_accepted(out, port_number, vlan_id)
+
+    def _check_untagged_accepted(self, out: str, port_number: int, vlan_id: int) -> None:
+        """Fail loudly when the switch refuses the untagged membership.
+
+        A port can be untagged in exactly one VLAN, so if the old one was not
+        removed first the switch rejects this command — and reporting success
+        anyway would leave the operator believing the port was moved.
+        """
+        low = out.lower()
+        if "fail" in low or "error" in low:
+            raise DriverError(
+                f"switch refused to make port {port_number} untagged in VLAN "
+                f"{vlan_id}: {out.strip()} — the port is most likely still "
+                f"untagged in another VLAN that was not detected")
 
     def parse_port_status(self, output: str) -> list[tuple[int, str]]:
         # 'show ports': "1  Enabled/Auto  Auto/Disabled  Link Down  Enabled".
