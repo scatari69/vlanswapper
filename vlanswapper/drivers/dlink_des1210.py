@@ -137,6 +137,24 @@ class DlinkDes1210Driver(DlinkDriver):
         return {b["vid"] for b in blocks
                 if port_number in (b["member"] | b["untagged"])}
 
+    def is_uplink_port(self, port_number: int, uplink_vlan: int) -> bool | None:
+        """Whether the port carries the uplink VLAN.
+
+        Answered from the uplink VLAN's own block instead of the base class's
+        :meth:`port_vlans`, which needs every block intact. A seam eating one
+        unrelated ``Member Ports`` line would otherwise downgrade this to "can't
+        tell" — and a guard that keeps saying "can't tell" is no guard at all.
+        """
+        blocks, _ = self._read_vlan_blocks()
+        if blocks is None:
+            return None
+        if self._require(blocks, ("member", "untagged"), only_vid=uplink_vlan):
+            return None
+        for b in blocks:
+            if b["vid"] == uplink_vlan:
+                return port_number in (b["member"] | b["untagged"])
+        return False        # the uplink VLAN isn't configured here at all
+
     def find_uplink_ports(self, uplink_vlan: int) -> list[int]:
         blocks, reason = self._read_vlan_blocks()
         # Only the uplink VLAN's own block is read, so only it has to be intact.

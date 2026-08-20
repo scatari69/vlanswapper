@@ -132,7 +132,9 @@ line loses a VLAN header), and it removes ANSI escapes plus stray control bytes.
 stray break inside `VID : 118` doesn't hide the header. Validation is **per use**
 (`_require`): a seam eating one `Member Ports` line says nothing about untagged
 membership, so it must not block a port move — each caller demands only the lists
-it reads, and `find_uplink_ports` only for the uplink VID's own block. When a
+it reads, and `find_uplink_ports`/`is_uplink_port` only for the uplink VID's own
+block — the guard deliberately bypasses `port_vlans` for that reason, since a
+guard that keeps answering "can't tell" protects nothing. When a
 listing is still rejected, the raw dump is logged escaped (`-v`), because the
 damage is invisible characters that a terminal hides and a paste drops. The
 base `parse_port_status` handles Cisco-like `show interfaces status`; override

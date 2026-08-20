@@ -310,6 +310,21 @@ class PartialBlockTests(unittest.TestCase):
         # port_vlans reads both lists, so it honestly reports "don't know".
         self.assertIsNone(drv.port_vlans(11))
 
+    def test_guard_still_works_when_another_block_is_incomplete(self):
+        # The guard only needs VLAN 253's block. A seam eating VLAN 104's member
+        # list must not downgrade it to "can't tell" — a guard that always says
+        # that protects nothing.
+        drv = DlinkDes1210Driver(
+            FakeSession({"show vlan": self._dump_without(104, "Member Ports")}))
+        self.assertFalse(drv.is_uplink_port(11, 253))   # ordinary access port
+        self.assertTrue(drv.is_uplink_port(28, 253))    # the real uplink
+        self.assertFalse(drv.is_uplink_port(27, 253))
+
+    def test_guard_cannot_tell_when_the_uplink_block_is_incomplete(self):
+        drv = DlinkDes1210Driver(
+            FakeSession({"show vlan": self._dump_without(253, "Member Ports")}))
+        self.assertIsNone(drv.is_uplink_port(28, 253))
+
     def test_missing_untagged_line_is_still_refused(self):
         # Here the missing line *could* have held the port — refuse to guess.
         dump = self._dump_without(315, "Untagged Ports")
