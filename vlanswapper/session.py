@@ -175,7 +175,10 @@ class Session:
             text, idx = self.c.read_until_re([more, self.prompt_re], timeout=timeout)
             self.c.take_buffer()
             if idx == 1:                       # prompt: last page, output complete
-                pages.append(text)
+                # Cleaned like every other page: the chunk that arrives after the
+                # final keypress still carries the escapes the pager erased itself
+                # with, and they sit right in front of the next record.
+                pages.append(_strip_pager(text, more))
                 break
             # The match fires on 'Next Page', mid-legend; without waiting for the
             # rest of the line we would miss the 'a ALL' key it advertises and

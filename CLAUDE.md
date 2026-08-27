@@ -128,6 +128,8 @@ rather than guessing. Two seam defects are handled rather than merely detected:
 `_strip_pager` excises only the legend's own tokens (the device often continues
 on the same row, gluing the next record onto the legend — dropping that whole
 line loses a VLAN header), and it removes ANSI escapes plus stray control bytes.
+It runs on **every** page including the last one: the chunk arriving after the
+final keypress still carries the escapes the pager erased itself with.
 `_vlan_blocks` then scans records over the whole text, not line by line, so a
 stray break inside `VID : 118` doesn't hide the header. Validation is **per use**
 (`_require`): a seam eating one `Member Ports` line says nothing about untagged

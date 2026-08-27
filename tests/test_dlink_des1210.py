@@ -370,5 +370,43 @@ class SeamDamageTests(unittest.TestCase):
         self.assertEqual(drv._current_untagged_vlans(11), [315])
 
 
+class FinalPageJunkTests(unittest.TestCase):
+    """The chunk after the last keypress carries the pager's erase escapes."""
+
+    class EscJunkSwitch(MockSwitch):
+        PAGER = b"CTRL+C ESC q Quit SPACE n Next Page ENTER Next Entry a ALL"
+        #: verbatim from a DES-1210-28 (172.17.2.132): a bare ESC, padding, then
+        #: an erase-to-end-of-line, immediately followed by the next VLAN header.
+        JUNK = b"\x1b                \x1b[K"
+
+        def _send_paged(self, conn, reply, prompt):
+            head, tail = reply.split(b"VID                : 112", 1)
+            conn.sendall(b"\r\n" + head + b"\r\n" + self.PAGER)
+            conn.recv(1)
+            conn.sendall(b"\r\n" + self.JUNK + b"VID                : 112" + tail
+                         + b"\r\n" + prompt)
+
+        def _reply(self, line, prompt):
+            if line.lower().startswith("show vlan"):
+                text = real_show_vlan(REAL_VLAN_BLOCKS[:3] +
+                                      [("112", "vlan112", "", "")])
+                return text.replace("\n", "\r\n").encode(), prompt
+            return super()._reply(line, prompt)
+
+    def test_escapes_on_the_last_page_do_not_hide_a_header(self):
+        sw = self.EscJunkSwitch(page_size=1).start()
+        client = TelnetClient("127.0.0.1", sw.port, timeout=3.0)
+        client.open()
+        try:
+            session = Session(client)
+            session.login("admin", "secret")
+            drv = get_driver("dlink_des1210")(session)
+            blocks, reason = drv._vlan_blocks(session.run_paged("show vlan"))
+        finally:
+            client.close()
+        self.assertEqual(reason, "")
+        self.assertEqual([b["vid"] for b in blocks], [1, 109, 105, 112])
+
+
 if __name__ == "__main__":
     unittest.main()
