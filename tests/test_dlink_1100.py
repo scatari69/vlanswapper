@@ -10,7 +10,7 @@ import unittest
 
 from tests.mock_switch import MockSwitch
 from vlanswapper.detect import detect_vendor
-from vlanswapper.drivers import get_driver
+from vlanswapper.drivers import DriverError, get_driver
 from vlanswapper.drivers.dlink_1100 import Dlink1100Driver
 from vlanswapper.drivers.dlink_1100_me import Dlink1100MeDriver
 from vlanswapper.session import Session
@@ -364,6 +364,30 @@ class AllKeyPagerTests(unittest.TestCase):
         # Exactly one keypress, and it was the ALL key — no page-by-page walk,
         # so no page seams inside the collected listing.
         self.assertEqual(sw.keys, [b"a"])
+
+
+class SaveCommandTests(unittest.TestCase):
+    """A bare 'save' is incomplete on the /ME firmware."""
+
+    def test_me_saves_with_the_subcommand(self):
+        sess = PagingSession()
+        Dlink1100MeDriver(sess).save()
+        self.assertIn("save config", sess.sent)
+        self.assertNotIn("save", [c for c in sess.sent if c == "save"])
+
+    def test_plain_1100_keeps_the_bare_form(self):
+        sess = PagingSession()
+        Dlink1100Driver(sess).save()
+        self.assertEqual(sess.sent, ["save"])
+
+    def test_completion_help_is_not_taken_for_success(self):
+        # 'Next possible completions' has no 'fail' in it, so without an explicit
+        # check the run would print Done while nothing was written to flash.
+        sess = PagingSession({"save": "Command: save\n\nNext possible completions :\n"
+                                      "config              log"})
+        with self.assertRaises(DriverError) as cm:
+            Dlink1100Driver(sess).save()
+        self.assertIn("did not accept", str(cm.exception))
 
 
 if __name__ == "__main__":

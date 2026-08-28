@@ -104,7 +104,11 @@ Each `drivers/<vendor>.py` subclasses `BaseDriver` and defines:
 Cisco-like CLIs do this implicitly, D-Link does **not** and removes it
 explicitly), `find_port_by_mac` (returns an `int` port number — parse the
 mac-table output), and `save`. Register the class in `drivers/__init__.py`
-`REGISTRY`.
+`REGISTRY`. In the D-Link family the save command is the `save_cmd` attribute
+(`save`, but `save config` on the 1100 /ME, where a bare `save` is incomplete);
+`_check_accepted` rejects a reply that is really completion help — an unknown or
+truncated command prints `Next possible completions` instead of failing, which
+carries no "fail" and would otherwise read as a successful write to flash.
 
 For the read-only menu views, set two class attributes with the vendor's
 commands: `mac_table_cmd` (full FDB dump → `BaseDriver.show_mac_table`) and

@@ -24,6 +24,8 @@ class DlinkDriver(BaseDriver):
     detect_markers = ("d-link", "des-", "dgs-", "dlink")
     mac_table_cmd = "show fdb"
     port_status_cmd = "show ports"
+    #: command that writes the running config; some firmware wants a subcommand.
+    save_cmd = "save"
     #: pager line this family stops on; overridable per firmware revision.
     more_re = MORE_RE
     #: key that advances one page (space on every D-Link CLI seen so far).
@@ -149,6 +151,18 @@ class DlinkDriver(BaseDriver):
         return None
 
     def save(self) -> None:
-        out = self._run_confirm("save", confirm_re=r"\(y/n\)|\[y/n\]")
-        if "fail" in out.lower():
-            raise DriverError(f"save failed: {out.strip()}")
+        out = self._run_confirm(self.save_cmd, confirm_re=r"\(y/n\)|\[y/n\]")
+        self._check_accepted(out, self.save_cmd)
+
+    #: replies meaning the device never ran the command. An incomplete or unknown
+    #: command prints its completion help instead of failing, so without this a
+    #: rejected 'save' would read as success and the config would be lost on reboot.
+    _REJECTED_RE = re.compile(
+        r"next\s+possible\s+completions|available\s+commands|invalid\s+input|"
+        r"unknown\s+command|syntax\s+error|\bfail\b",
+        re.IGNORECASE)
+
+    def _check_accepted(self, out: str, command: str) -> None:
+        if self._REJECTED_RE.search(out):
+            raise DriverError(
+                f"switch did not accept {command!r}: {' '.join(out.split())[:120]}")
