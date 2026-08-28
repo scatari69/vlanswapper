@@ -369,16 +369,43 @@ class AllKeyPagerTests(unittest.TestCase):
 class SaveCommandTests(unittest.TestCase):
     """A bare 'save' is incomplete on the /ME firmware."""
 
-    def test_me_saves_with_the_subcommand(self):
-        sess = PagingSession()
-        Dlink1100MeDriver(sess).save()
-        self.assertIn("save config", sess.sent)
-        self.assertNotIn("save", [c for c in sess.sent if c == "save"])
+    class FirmwareSession(PagingSession):
+        """Takes exactly one save form; answers anything else with completion help."""
 
-    def test_plain_1100_keeps_the_bare_form(self):
-        sess = PagingSession()
-        Dlink1100Driver(sess).save()
-        self.assertEqual(sess.sent, ["save"])
+        HELP = ("Command: %s\n\nNext possible completions :\n"
+                "config              log")
+
+        def __init__(self, accepted):
+            super().__init__()
+            self.accepted = accepted
+
+        def _lookup(self, command):
+            return "" if command == self.accepted else self.HELP % command
+
+    def test_me_prefers_the_subcommand_but_copes_without_it(self):
+        # The right form varies by firmware on the same model, so both must work.
+        old_fw = self.FirmwareSession("save config")
+        Dlink1100MeDriver(old_fw).save()
+        self.assertEqual(old_fw.sent, ["save config"])
+
+        new_fw = self.FirmwareSession("save")
+        Dlink1100MeDriver(new_fw).save()
+        self.assertEqual(new_fw.sent, ["save config", "save"])
+
+    def test_plain_1100_prefers_the_bare_form_but_copes_without_it(self):
+        new_fw = self.FirmwareSession("save")
+        Dlink1100Driver(new_fw).save()
+        self.assertEqual(new_fw.sent, ["save"])
+
+        old_fw = self.FirmwareSession("save config")
+        Dlink1100Driver(old_fw).save()
+        self.assertEqual(old_fw.sent, ["save", "save config"])
+
+    def test_no_usable_form_fails_loudly(self):
+        sess = self.FirmwareSession("save something-else")
+        with self.assertRaises(DriverError):
+            Dlink1100Driver(sess).save()
+        self.assertEqual(sess.sent, ["save", "save config"])
 
     def test_completion_help_is_not_taken_for_success(self):
         # 'Next possible completions' has no 'fail' in it, so without an explicit

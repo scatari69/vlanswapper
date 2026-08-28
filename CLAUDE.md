@@ -104,8 +104,10 @@ Each `drivers/<vendor>.py` subclasses `BaseDriver` and defines:
 Cisco-like CLIs do this implicitly, D-Link does **not** and removes it
 explicitly), `find_port_by_mac` (returns an `int` port number — parse the
 mac-table output), and `save`. Register the class in `drivers/__init__.py`
-`REGISTRY`. In the D-Link family the save command is the `save_cmd` attribute
-(`save`, but `save config` on the 1100 /ME, where a bare `save` is incomplete);
+`REGISTRY`. In the D-Link family the save command is the `save_cmds` tuple,
+tried in order until one is accepted — the right form varies by *firmware*, not
+just model (a DGS-1100-10/ME needs `save config` on older releases and takes a
+bare `save` on newer ones), so the /ME just reorders the same two;
 `_check_accepted` rejects a reply that is really completion help — an unknown or
 truncated command prints `Next possible completions` instead of failing, which
 carries no "fail" and would otherwise read as a successful write to flash.

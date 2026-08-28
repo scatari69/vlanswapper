@@ -34,6 +34,7 @@ class Dlink1100MeDriver(Dlink1100Driver):
         "1100-06/me", "1100-08/me", "1100-10/me",
         "1100-16/me", "1100-24/me", "1100-26/me",
     )
-    # A bare 'save' is incomplete on this firmware — it answers with
-    # 'Next possible completions : config  log' and writes nothing.
-    save_cmd = "save config"
+    # Firmware-dependent: older releases need 'save config' (a bare 'save'
+    # answers 'Next possible completions : config log' and writes nothing),
+    # newer ones take the bare form. Preferred order here, fallback in the base.
+    save_cmds = ("save config", "save")

@@ -24,8 +24,11 @@ class DlinkDriver(BaseDriver):
     detect_markers = ("d-link", "des-", "dgs-", "dlink")
     mac_table_cmd = "show fdb"
     port_status_cmd = "show ports"
-    #: command that writes the running config; some firmware wants a subcommand.
-    save_cmd = "save"
+    #: forms of the save command to try, in order. The right one varies *by
+    #: firmware*, not just by model: a DGS-1100-10/ME answers a bare 'save' with
+    #: 'Next possible completions : config log' on older releases and accepts it
+    #: on newer ones. Trying in order and detecting the refusal beats guessing.
+    save_cmds = ("save", "save config")
     #: pager line this family stops on; overridable per firmware revision.
     more_re = MORE_RE
     #: key that advances one page (space on every D-Link CLI seen so far).
@@ -151,8 +154,19 @@ class DlinkDriver(BaseDriver):
         return None
 
     def save(self) -> None:
-        out = self._run_confirm(self.save_cmd, confirm_re=r"\(y/n\)|\[y/n\]")
-        self._check_accepted(out, self.save_cmd)
+        last: DriverError | None = None
+        for cmd in self.save_cmds:
+            out = self._run_confirm(cmd, confirm_re=r"\(y/n\)|\[y/n\]")
+            try:
+                self._check_accepted(out, cmd)
+            except DriverError as exc:
+                # Not run at all (completion help / unknown command) — try the
+                # next form. A rejected save writes nothing, so this is safe.
+                last = exc
+                self.s.log(f"[{self.name}] {cmd!r} not accepted, trying next form")
+                continue
+            return
+        raise last or DriverError("no usable save command")
 
     #: replies meaning the device never ran the command. An incomplete or unknown
     #: command prints its completion help instead of failing, so without this a
